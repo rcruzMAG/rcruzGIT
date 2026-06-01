@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Render Brief — Architectural Prompt Maker</title>
+<style>
+  :root {
+    --bg: #0e0f12;
+    --panel: #16181d;
+    --panel-2: #1d2026;
+    --line: #2a2e37;
+    --txt: #e8e6e1;
+    --muted: #9a9690;
+    --gold: #c9a35e;
+    --gold-soft: rgba(201,163,94,0.16);
+    --accent: #d9c7a3;
+    --radius: 14px;
+    --radius-sm: 9px;
+    --shadow: 0 12px 40px rgba(0,0,0,0.45);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: radial-gradient(1200px 700px at 70% -10%, #1b1d23 0%, var(--bg) 55%);
+    color: var(--txt);
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+  header.app {
+    padding: 30px 28px 18px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 14px;
+  }
+  .brand { display: flex; flex-direction: column; gap: 4px; }
+  .brand .eyebrow {
+    text-transform: uppercase;
+    letter-spacing: 0.32em;
+    font-size: 11px;
+    color: var(--gold);
+    font-weight: 600;
+  }
+  .brand h1 {
+    margin: 0;
+    font-size: 26px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+  }
+  .brand p { margin: 0; color: var(--muted); font-size: 13.5px; max-width: 540px; }
+
+  .layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.9fr);
+    gap: 22px;
+    padding: 22px 28px 60px;
+    align-items: start;
+  }
+  @media (max-width: 980px) { .layout { grid-template-columns: 1fr; } }
+
+  .col-left { display: flex; flex-direction: column; gap: 18px; }
+
+  section.card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 18px 18px 20px;
+    box-shadow: var(--shadow);
+  }
+  section.card > h2 {
+    margin: 0 0 3px;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    color: var(--accent);
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+  section.card > h2 .num {
+    width: 22px; height: 22px;
+    display: inline-grid; place-items: center;
+    border: 1px solid var(--gold);
+    color: var(--gold);
+    border-radius: 50%;
+    font-size: 11px;
+    letter-spacing: 0;
+  }
+  section.card > .hint { margin: 0 0 14px; font-size: 12.5px; color: var(--muted); }
+
+  .field { margin-bottom: 14px; }
+  .field:last-child { margin-bottom: 0; }
+  .field > label {
+    display: block;
+    font-size: 11.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--muted);
+    margin-bottom: 7px;
+    font-weight: 600;
+  }
+  input[type="text"], textarea {
+    width: 100%;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    color: var(--txt);
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+    font-size: 14px;
+    font-family: inherit;
+    resize: vertical;
+  }
+  input[type="text"]:focus, textarea:focus {
+    outline: none;
+    border-color: var(--gold);
+    box-shadow: 0 0 0 3px var(--gold-soft);
+  }
+  textarea { min-height: 60px; line-height: 1.45; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    border: 1px solid var(--line);
+    background: var(--panel-2);
+    color: var(--txt);
+    padding: 7px 13px;
+    border-radius: 999px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.14s ease;
+    user-select: none;
+  }
+  .chip:hover { border-color: var(--gold); }
+  .chip.active {
+    background: var(--gold);
+    border-color: var(--gold);
+    color: #1a1407;
+    font-weight: 600;
+  }
+  .chip.single.active { background: var(--accent); border-color: var(--accent); }
+
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 560px) { .row { grid-template-columns: 1fr; } }
+
+  /* Image dropzones */
+  .dropzones { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 560px) { .dropzones { grid-template-columns: 1fr; } }
+  .dropzone {
+    border: 1.5px dashed var(--line);
+    border-radius: var(--radius-sm);
+    padding: 16px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    background: var(--panel-2);
+  }
+  .dropzone:hover, .dropzone.drag { border-color: var(--gold); background: var(--gold-soft); }
+  .dropzone .dz-title { font-size: 13px; font-weight: 600; color: var(--accent); margin-bottom: 3px; }
+  .dropzone .dz-sub { font-size: 11.5px; color: var(--muted); }
+  .thumbs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .thumb {
+    position: relative;
+    width: 74px; height: 74px;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+  }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .thumb button {
+    position: absolute; top: 2px; right: 2px;
+    width: 18px; height: 18px;
+    border: none; border-radius: 50%;
+    background: rgba(0,0,0,0.7); color: #fff;
+    font-size: 12px; line-height: 1; cursor: pointer;
+    display: grid; place-items: center;
+  }
+  .thumb .tag {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    font-size: 9px; text-align: center;
+    background: rgba(0,0,0,0.66); color: var(--accent);
+    text-transform: uppercase; letter-spacing: 0.08em; padding: 1px 0;
+  }
+
+  /* Output column */
+  .col-right { position: sticky; top: 18px; display: flex; flex-direction: column; gap: 14px; }
+  .output-card { background: var(--panel); border: 1px solid var(--gold); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+  .output-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 16px; border-bottom: 1px solid var(--line);
+  }
+  .output-head h2 { margin: 0; font-size: 13px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--gold); }
+  .output-body { padding: 16px; }
+  #output {
+    width: 100%; min-height: 340px;
+    background: var(--panel-2); border: 1px solid var(--line);
+    color: var(--txt); border-radius: var(--radius-sm);
+    padding: 14px; font-size: 13.5px; line-height: 1.6;
+    font-family: "SF Mono", "JetBrains Mono", ui-monospace, monospace;
+    resize: vertical;
+  }
+  .btnrow { display: flex; gap: 10px; padding: 0 16px 16px; flex-wrap: wrap; }
+  button.action {
+    flex: 1; min-width: 120px;
+    border: 1px solid var(--gold); background: var(--gold); color: #1a1407;
+    font-weight: 600; font-size: 13px; padding: 11px; border-radius: var(--radius-sm);
+    cursor: pointer; transition: all 0.14s ease;
+  }
+  button.action.ghost { background: transparent; color: var(--gold); }
+  button.action:hover { filter: brightness(1.07); }
+  button.action.ghost:hover { background: var(--gold-soft); }
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px);
+    background: var(--gold); color: #1a1407; font-weight: 600; font-size: 13px;
+    padding: 10px 20px; border-radius: 999px; box-shadow: var(--shadow);
+    opacity: 0; pointer-events: none; transition: all 0.25s ease;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .footnote { color: var(--muted); font-size: 11.5px; padding: 0 2px; }
+  .clearbar { display:flex; justify-content: flex-end; }
+  .clearbar button {
+    background: none; border: none; color: var(--muted); font-size: 12px;
+    cursor: pointer; text-decoration: underline; text-underline-offset: 3px;
+  }
+  .clearbar button:hover { color: var(--gold); }
+</style>
+</head>
+<body>
+<header class="app">
+  <div class="brand">
+    <span class="eyebrow">Architectural Visualization</span>
+    <h1>Render Brief — Prompt Maker</h1>
+    <p>Compose a world-class, presentation-ready render prompt. Add style &amp; model reference images, select the details, and copy the brief into your image tool.</p>
+  </div>
+  <div class="clearbar"><button id="resetAll">Reset all</button></div>
+</header>
+
+<div class="layout">
+  <div class="col-left">
+
+    <!-- Reference images -->
+    <section class="card">
+      <h2><span class="num">0</span> Reference Images</h2>
+      <p class="hint">Attach images for <strong>style</strong> direction and <strong>model / subject</strong> reference. Previews stay in your browser — attach the actual files to your AI tool alongside the copied prompt.</p>
+      <div class="dropzones">
+        <div>
+          <div class="dropzone" data-kind="style" id="dz-style">
+            <div class="dz-title">+ Style reference</div>
+            <div class="dz-sub">Mood, lighting, material &amp; color language</div>
+          </div>
+          <div class="thumbs" id="thumbs-style"></div>
+        </div>
+        <div>
+          <div class="dropzone" data-kind="model" id="dz-model">
+            <div class="dz-title">+ Model reference</div>
+            <div class="dz-sub">Building, plan, massing or subject to match</div>
+          </div>
+          <div class="thumbs" id="thumbs-model"></div>
+        </div>
+      </div>
+      <input type="file" id="fileInput" accept="image/*" multiple hidden />
+    </section>
+
+    <!-- Project basics -->
+    <section class="card">
+      <h2><span class="num">1</span> Project</h2>
+      <div class="field">
+        <label>Project type</label>
+        <div class="chips" data-group="projectType" data-mode="single"></div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label>Location / context</label>
+          <input type="text" id="location" placeholder="e.g. Dubai, UAE — coastal desert" />
+        </div>
+        <div class="field">
+          <label>Target client / market</label>
+          <input type="text" id="client" placeholder="e.g. ultra-high-net-worth family" />
+        </div>
+      </div>
+      <div class="field">
+        <label>Design positioning / mood</label>
+        <div class="chips" data-group="mood" data-mode="multi"></div>
+      </div>
+      <div class="field">
+        <label>Design concept / story</label>
+        <textarea id="concept" placeholder="e.g. a serene desert sanctuary blending warm minimalism, shaded courtyards and sculptural stone volumes"></textarea>
+      </div>
+    </section>
+
+    <!-- Scene & composition -->
+    <section class="card">
+      <h2><span class="num">2</span> Scene &amp; Composition</h2>
+      <div class="field">
+        <label>Scene / view to show</label>
+        <textarea id="scene" placeholder="e.g. golden-hour exterior hero view from the garden toward the main living pavilion"></textarea>
+      </div>
+      <div class="field">
+        <label>Composition focus</label>
+        <div class="chips" data-group="composition" data-mode="single"></div>
+      </div>
+    </section>
+
+    <!-- Camera -->
+    <section class="card">
+      <h2><span class="num">3</span> Camera Direction</h2>
+      <div class="field">
+        <label>Camera height / angle</label>
+        <div class="chips" data-group="cameraHeight" data-mode="single"></div>
+      </div>
+      <div class="field">
+        <label>Lens</label>
+        <div class="chips" data-group="lens" data-mode="single"></div>
+      </div>
+      <div class="field">
+        <label>Image format</label>
+        <div class="chips" data-group="format" data-mode="single"></div>
+      </div>
+    </section>
+
+    <!-- Lighting & materials -->
+    <section class="card">
+      <h2><span class="num">4</span> Lighting &amp; Materiality</h2>
+      <div class="field">
+        <label>Lighting condition</label>
+        <div class="chips" data-group="lighting" data-mode="single"></div>
+      </div>
+      <div class="field">
+        <label>Materials (select key palette)</label>
+        <div class="chips" data-group="materials" data-mode="multi"></div>
+      </div>
+    </section>
+
+    <!-- Landscape, people, color -->
+    <section class="card">
+      <h2><span class="num">5</span> Context &amp; Finish</h2>
+      <div class="field">
+        <label>Landscape / public realm</label>
+        <div class="chips" data-group="landscape" data-mode="single"></div>
+      </div>
+      <div class="field">
+        <label>People &amp; lifestyle</label>
+        <div class="chips" data-group="people" data-mode="single"></div>
+      </div>
+      <div class="field">
+        <label>Color grading</label>
+        <div class="chips" data-group="grading" data-mode="single"></div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- Output -->
+  <div class="col-right">
+    <div class="output-card">
+      <div class="output-head">
+        <h2>Generated Prompt</h2>
+        <span class="footnote" id="charcount">0 chars</span>
+      </div>
+      <div class="output-body">
+        <textarea id="output" readonly></textarea>
+      </div>
+      <div class="btnrow">
+        <button class="action" id="copyBtn">Copy prompt</button>
+        <button class="action ghost" id="downloadBtn">Download .txt</button>
+      </div>
+    </div>
+    <p class="footnote">The prompt updates live as you choose options. Required basics: project type, location, client and concept produce the strongest brief. Everything else refines it.</p>
+  </div>
+</div>
+
+<div class="toast" id="toast">Copied to clipboard</div>
+
+<script>
+const OPTIONS = {
+  projectType: ["luxury villa","branded residence","boutique hotel","resort","mixed-use development","high-rise tower","waterfront masterplan","cultural destination","retail district","private palace","corporate headquarters","wellness retreat","urban boulevard","interior space","hospitality lobby","penthouse","restaurant","spa","landscape masterplan"],
+  mood: ["timeless","iconic","elegant","contemporary","warm","minimal","resort-like","ultra-luxury","culturally rooted","futuristic","serene","sustainable","exclusive","monumental","intimate","crafted","visionary","investment-grade"],
+  composition: ["exterior three-quarter hero view","interior eye-level depth","masterplan elevated aerial","hospitality lifestyle scene"],
+  cameraHeight: ["eye-level","low heroic angle","elevated terrace view","drone aerial","rooftop view","controlled wide-angle"],
+  lens: ["24mm","28mm","35mm","50mm","tilt-shift architectural lens","cinematic anamorphic"],
+  format: ["16:9","4:5","3:2","1:1","panoramic","presentation board ratio"],
+  lighting: ["golden hour","blue hour","soft morning light","warm evening glow","overcast editorial light","dramatic sunset","refined night scene","daylight interior","candlelit hospitality mood","shaded courtyard light","skylight illumination"],
+  materials: ["natural stone","travertine","limestone","marble","bronze","brushed metal","timber","oak","walnut","fluted glass","low-iron glass","textured plaster","rammed earth","polished concrete","terrazzo","woven textiles","leather","ceramic","water","greenery","sand","gravel","architectural concrete","metal mesh","terracotta","corten steel"],
+  landscape: ["desert planting","Mediterranean gardens","tropical resort landscape","formal palace gardens","native ecological landscape","urban plaza","waterfront promenade","shaded courtyards","roof gardens","civic park","wellness landscape","private estate gardens"],
+  people: ["no people — pure architecture","minimal subtle figures","lifestyle activity","lively public realm"],
+  grading: ["warm neutrals, soft contrast","natural tones, controlled saturation","editorial cool neutrals","rich cinematic dusk tones"]
+};
+
+const COMPOSITION_TEXT = {
+  "exterior three-quarter hero view": "a heroic but tasteful three-quarter exterior view showing form, entrance, facade rhythm and landscape integration",
+  "interior eye-level depth": "a refined eye-level interior composition showing spatial depth, furniture arrangement, material richness and human scale",
+  "masterplan elevated aerial": "a cinematic elevated aerial view showing district structure, public realm, landscape network, skyline and waterfront",
+  "hospitality lifestyle scene": "a lifestyle-driven composition showing architecture, landscape, water, soft lighting, curated furniture and guests"
+};
+
+const PEOPLE_TEXT = {
+  "no people — pure architecture": "No people — keep the scene focused purely on the architecture.",
+  "minimal subtle figures": "Include a few realistic, well-scaled, elegantly dressed figures, subtly placed for scale.",
+  "lifestyle activity": "Include realistic, culturally appropriate people engaged in natural lifestyle activity to convey the experience.",
+  "lively public realm": "Populate the scene with a lively but tasteful public realm — people walking, dining, gathering and using the space."
+};
+
+const NEGATIVE = "generic AI render, warped geometry, distorted architecture, tilted verticals, plastic materials, fake reflections, random facade patterns, cluttered composition, unrealistic people, distorted faces, extra limbs, floating objects, blurry details, overexposed sky, excessive bloom, oversaturation, neon lighting, fake text, watermark, logo, chaotic layout, poor material joints, low-quality CGI.";
+
+const state = {
+  projectType: null, mood: [], composition: null,
+  cameraHeight: null, lens: null, format: null,
+  lighting: null, materials: [], landscape: null,
+  people: null, grading: null,
+  location: "", client: "", concept: "", scene: ""
+};
+const images = { style: [], model: [] };
+
+// Build chip groups
+document.querySelectorAll('.chips[data-group]').forEach(group => {
+  const key = group.dataset.group;
+  const mode = group.dataset.mode;
+  OPTIONS[key].forEach(val => {
+    const chip = document.createElement('div');
+    chip.className = 'chip' + (mode === 'single' ? ' single' : '');
+    chip.textContent = val;
+    chip.addEventListener('click', () => {
+      if (mode === 'single') {
+        const same = state[key] === val;
+        group.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+        if (same) { state[key] = null; }
+        else { state[key] = val; chip.classList.add('active'); }
+      } else {
+        const i = state[key].indexOf(val);
+        if (i >= 0) { state[key].splice(i, 1); chip.classList.remove('active'); }
+        else { state[key].push(val); chip.classList.add('active'); }
+      }
+      render();
+    });
+    group.appendChild(chip);
+  });
+});
+
+// Text inputs
+[["location","location"],["client","client"],["concept","concept"],["scene","scene"]].forEach(([id,key]) => {
+  document.getElementById(id).addEventListener('input', e => { state[key] = e.target.value.trim(); render(); });
+});
+
+// Image handling
+let activeKind = 'style';
+const fileInput = document.getElementById('fileInput');
+['style','model'].forEach(kind => {
+  const dz = document.getElementById('dz-' + kind);
+  dz.addEventListener('click', () => { activeKind = kind; fileInput.click(); });
+  dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
+  dz.addEventListener('drop', e => {
+    e.preventDefault(); dz.classList.remove('drag');
+    handleFiles(e.dataTransfer.files, kind);
+  });
+});
+fileInput.addEventListener('change', e => { handleFiles(e.target.files, activeKind); fileInput.value = ''; });
+
+function handleFiles(files, kind) {
+  [...files].filter(f => f.type.startsWith('image/')).forEach(file => {
+    const reader = new FileReader();
+    reader.onload = ev => { images[kind].push({ src: ev.target.result, name: file.name }); renderThumbs(kind); };
+    reader.readAsDataURL(file);
+  });
+}
+function renderThumbs(kind) {
+  const wrap = document.getElementById('thumbs-' + kind);
+  wrap.innerHTML = '';
+  images[kind].forEach((img, idx) => {
+    const t = document.createElement('div');
+    t.className = 'thumb';
+    t.innerHTML = `<img src="${img.src}" alt="${img.name}"/><span class="tag">${kind}</span><button title="Remove">&times;</button>`;
+    t.querySelector('button').addEventListener('click', () => { images[kind].splice(idx,1); renderThumbs(kind); });
+    wrap.appendChild(t);
+  });
+}
+
+// Prompt generation — short copy-paste version
+function sentence(s) { return s ? s : ""; }
+
+function buildPrompt() {
+  const pt = state.projectType || "[project type]";
+  const loc = state.location || "[location]";
+  const client = state.client || "[client / market]";
+  const concept = state.concept || "[design concept]";
+  const mood = state.mood.length ? state.mood.join(", ") : "timeless, elegant, premium";
+  const scene = state.scene || "[the exact view or space]";
+  const comp = state.composition ? COMPOSITION_TEXT[state.composition] : "a professional architectural photography composition";
+  const cam = state.cameraHeight || "a carefully selected camera angle";
+  const lens = state.lens ? `a ${state.lens} lens` : "a professional architectural lens";
+  const fmt = state.format ? ` Frame for a ${state.format} format.` : "";
+  const light = state.lighting || "soft, physically believable light";
+  const mats = state.materials.length ? state.materials.join(", ") : "premium, tactile, project-appropriate materials";
+  const land = state.landscape ? `, with ${state.landscape}` : "";
+  const ppl = state.people ? PEOPLE_TEXT[state.people] : "Include people only if they enhance the scene — realistic, well-scaled and culturally appropriate.";
+  const grade = state.grading || "warm neutrals, soft contrast, controlled saturation";
+
+  const refStyle = images.style.length ? ` ${images.style.length} style reference image(s) attached — match their mood, lighting and material language.` : "";
+  const refModel = images.model.length ? ` ${images.model.length} model/subject reference image(s) attached — respect their massing, form and proportions.` : "";
+  const refLine = (refStyle || refModel) ? "\n\nReference images:" + refStyle + refModel : "";
+
+  return (
+`Create a world-class architectural visualization for a high-profile client presentation, as if produced by an elite international architecture and visualization studio. The project is a ${pt} located in ${loc}, designed for ${client}, with a design concept inspired by ${concept}. The image must be photorealistic, cinematic, refined and presentation-ready, communicating luxury, architectural intelligence, commercial value and emotional aspiration. The atmosphere should feel ${mood}.
+
+Show ${scene} using ${comp}, with a ${cam} and ${lens}, accurate perspective, straight verticals, realistic scale and elegant framing.${fmt} Use ${light} with physically believable shadows, warm highlights, controlled reflections and a premium atmospheric mood.
+
+The architecture should feature refined massing, elegant proportions and realistic detailing, with premium materials such as ${mats}${land}, all resolved with convincing joints, texture and craftsmanship. ${ppl}
+
+Apply a sophisticated color grade (${grade}), with deep but readable shadows and a premium editorial finish. The final image should feel like a luxury real-estate campaign, international design competition render or investor presentation hero image: ultra-premium, realistic, atmospheric, buildable, elegant and iconic.${refLine}
+
+Avoid: ${NEGATIVE}`
+  );
+}
+
+function render() {
+  const txt = buildPrompt();
+  const out = document.getElementById('output');
+  out.value = txt;
+  document.getElementById('charcount').textContent = txt.length + ' chars';
+}
+
+// Actions
+document.getElementById('copyBtn').addEventListener('click', async () => {
+  const out = document.getElementById('output');
+  try { await navigator.clipboard.writeText(out.value); }
+  catch { out.select(); document.execCommand('copy'); }
+  showToast('Prompt copied to clipboard');
+});
+document.getElementById('downloadBtn').addEventListener('click', () => {
+  const blob = new Blob([document.getElementById('output').value], { type: 'text/plain' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'render-brief.txt';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  showToast('Downloaded render-brief.txt');
+});
+document.getElementById('resetAll').addEventListener('click', () => {
+  Object.keys(state).forEach(k => { state[k] = Array.isArray(state[k]) ? [] : (typeof state[k] === 'string' ? "" : null); });
+  images.style = []; images.model = [];
+  document.querySelectorAll('.chip.active').forEach(c => c.classList.remove('active'));
+  document.querySelectorAll('input[type=text], textarea:not(#output)').forEach(i => i.value = '');
+  renderThumbs('style'); renderThumbs('model');
+  render();
+});
+
+let toastTimer;
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 1800);
+}
+
+render();
+</script>
+</body>
+</html>
