@@ -365,7 +365,7 @@
       </div>
       <div class="btnrow">
         <button class="action" id="copyBtn">Copy prompt</button>
-        <button class="action ghost" id="downloadBtn">Download .txt</button>
+        <button class="action ghost" id="selectBtn">Select all</button>
       </div>
     </div>
     <p class="footnote">The prompt updates live as you choose options. Required basics: project type, location, client and concept produce the strongest brief. Everything else refines it.</p>
@@ -523,20 +523,30 @@ function render() {
 }
 
 // Actions
+function selectOutput() {
+  const out = document.getElementById('output');
+  out.focus();
+  out.select();
+  out.setSelectionRange(0, out.value.length);
+}
 document.getElementById('copyBtn').addEventListener('click', async () => {
   const out = document.getElementById('output');
-  try { await navigator.clipboard.writeText(out.value); }
-  catch { out.select(); document.execCommand('copy'); }
-  showToast('Prompt copied to clipboard');
+  let ok = false;
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(out.value);
+      ok = true;
+    }
+  } catch (e) { /* fall through to manual copy */ }
+  if (!ok) {
+    selectOutput();
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+  }
+  showToast(ok ? 'Prompt copied to clipboard' : 'Press Ctrl/Cmd+C to copy the selected text');
 });
-document.getElementById('downloadBtn').addEventListener('click', () => {
-  const blob = new Blob([document.getElementById('output').value], { type: 'text/plain' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'render-brief.txt';
-  a.click();
-  URL.revokeObjectURL(a.href);
-  showToast('Downloaded render-brief.txt');
+document.getElementById('selectBtn').addEventListener('click', () => {
+  selectOutput();
+  showToast('Text selected — press Ctrl/Cmd+C to copy');
 });
 document.getElementById('resetAll').addEventListener('click', () => {
   Object.keys(state).forEach(k => { state[k] = Array.isArray(state[k]) ? [] : (typeof state[k] === 'string' ? "" : null); });

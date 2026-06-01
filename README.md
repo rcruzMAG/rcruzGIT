@@ -21,7 +21,8 @@ Open `index.html` in any modern browser. No build step, no dependencies.
   - Landscape/public realm, people & lifestyle, color grading
 - **Live prompt** — a tight, copy-paste-ready brief that updates as you choose, with a
   built-in negative prompt.
-- **Copy** to clipboard or **download** as `.txt`.
+- **Copy** to clipboard, with a **Select all** fallback for sandboxed contexts (e.g.
+  Claude artifacts) where clipboard access may be blocked.
 
 ## Notes
 
