@@ -315,6 +315,15 @@ Sideboard
       </div>
       <div class="status" id="netStatus">Create a game and send the code to your opponent, or paste their code and join.</div>
     </div>
+
+    <div style="margin-top:16px;border-top:1px solid var(--line);padding-top:4px">
+      <label>Watch a game (spectator — no deck needed)</label>
+      <div class="row">
+        <input type="text" id="specCode" placeholder="Enter game code…" style="width:220px;text-transform:uppercase" />
+        <button id="btnSpec">👁 Spectate</button>
+      </div>
+      <div class="status" id="specStatus"></div>
+    </div>
   </div>
 </div>
 
@@ -344,7 +353,7 @@ Sideboard
         <button class="mini" id="poisonPlus">+</button>
       </div>
     </div>
-    <div class="panel btncol">
+    <div class="panel btncol" id="actionsPanel">
       <h3>Actions</h3>
       <div class="btnrow">
         <button id="btnDraw">Draw card</button>
@@ -366,7 +375,7 @@ Sideboard
         <button id="btnHold" title="When on, you get a stop at your opponent's end step before they pass the turn">⏸ End-step stop</button>
       </div>
     </div>
-    <div class="panel btncol">
+    <div class="panel btncol" id="randomPanel">
       <h3>Random</h3>
       <div class="btnrow">
         <button id="btnCoin">Coin</button>
@@ -407,7 +416,7 @@ Sideboard
       </div>
     </div>
 
-    <div class="field" id="myPerms"><span class="glbl">Your Permanents</span></div>
+    <div class="field" id="myPerms"><span class="glbl" id="myPermLbl">Your Permanents</span></div>
     <div class="grouprow">
       <div class="group lands" id="myLands"><span class="glbl">Lands</span></div>
       <div class="piles">
@@ -677,7 +686,7 @@ const entersTapped = c => /enters(?: the battlefield)? tapped\b/i.test(noRem(c.o
 
 /* ================= Networking (PeerJS) ================= */
 
-let peer = null, conn = null, saidHello = false;
+let peer = null, conn = null, saidHello = false, spectators = [];
 
 function gameCode() {
   const A = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; let s = "";
@@ -696,7 +705,11 @@ function hostGame() {
     $("hostCode").style.display = "inline-block";
     $("netStatus").textContent = "Share this code with your opponent. Waiting for them to join…";
   });
-  peer.on("connection", c => { conn = c; wireConn(); });
+  peer.on("connection", c => {
+    const role = (c.metadata && c.metadata.role) || "player";
+    if (role === "spectator" || (conn && conn.open)) { wireSpectator(c); return; }   // seat taken → watch
+    conn = c; wireConn();
+  });
   peer.on("call", onIncomingCall);
   peer.on("error", e => netError(e));
 }
@@ -718,9 +731,80 @@ function netError(e) {
     "peer-unavailable": "No game found with that code. Check it and try again.",
     "network": "Cannot reach the signalling server — check your connection.",
   };
-  $("netStatus").textContent = "✗ " + (msgs[e.type] || ("Connection error: " + e.type));
-  $("netStatus").className = "status err";
+  const txt = "✗ " + (msgs[e.type] || ("Connection error: " + e.type));
+  const el = G.spectator ? $("specStatus") : $("netStatus");
+  el.textContent = txt; el.className = "status err";
   if (G.connected) { setConn(false); toast("Connection error: " + e.type); }
+}
+
+/* ---- spectator client ---- */
+
+function joinSpectate() {
+  const code = $("specCode").value.trim().toUpperCase();
+  if (code.length < 4) { $("specStatus").textContent = "Enter the 5-letter game code."; return; }
+  confirmName();
+  G.spectator = true; G.side = "spec";
+  $("specStatus").textContent = "Connecting…"; $("specStatus").className = "status";
+  peer = new Peer({ debug: 1 });
+  peer.on("open", () => {
+    conn = peer.connect(peerId(code), { reliable: true, metadata: { role: "spectator", name: G.myName } });
+    conn.on("data", handleSpecMsg);
+    conn.on("close", () => { setConn(false); toast("Stream ended — the host disconnected."); sysLog("The host disconnected."); });
+  });
+  peer.on("error", e => netError(e));
+}
+
+function handleSpecMsg(m) {
+  if (!m || typeof m !== "object") return;
+  switch (m.t) {
+    case "snapshot":
+      G.specNames = { host: m.p.hostName || "Host", guest: m.p.guestName || "(waiting for opponent)" };
+      applySpecSide("host", m.p.host);
+      applySpecSide("guest", m.p.guest);
+      if (m.p.flow) G.flow = m.p.flow;
+      startSpectate();
+      break;
+    case "names":
+      G.specNames = { host: m.p.hostName || "Host", guest: m.p.guestName || "Guest" };
+      specLabels(); renderAll();
+      break;
+    case "state": applySpecSide(m.from, m.p); renderAll(); break;
+    case "flow": G.flow = m.p; renderAll(); break;
+    case "log": addLog(m.p.text, m.from === "host" ? "me" : m.from === "guest" ? "opp" : "sys", true); break;
+    case "chat": addLog("<span class='who'>" + esc(m.p.name || "?") + ":</span> " + esc(m.p.text), m.from === "host" ? "me" : "opp", true); break;
+  }
+}
+
+function applySpecSide(from, s) {
+  if (!s) return;
+  const tgt = from === "host" ? G.me : G.opp;
+  tgt.life = s.life | 0; tgt.poison = s.poison | 0;
+  tgt.handCount = s.handCount | 0; tgt.libCount = s.libCount | 0; tgt.sideCount = s.sideCount | 0;
+  tgt.grave = s.grave || []; tgt.exile = s.exile || []; tgt.field = s.field || [];
+}
+
+function specLabels() {
+  const n = G.specNames || { host: "Host", guest: "Guest" };
+  G.oppName = n.guest;   // so opponent-side viewers and toasts use the right name
+  $("myNameLbl").textContent = n.host;
+  $("oppNameLbl").textContent = n.guest;
+  $("myAvName").textContent = n.host;
+  $("oppAvName").textContent = n.guest;
+  $("myPermLbl").textContent = n.host + " — Permanents";
+  $("oppPermLbl").textContent = n.guest + " — Permanents";
+}
+
+function startSpectate() {
+  if ($("game").classList.contains("on")) { specLabels(); renderAll(); return; }
+  setConn(true);
+  $("connLbl").textContent = "spectating";
+  $("setup").style.display = "none";
+  $("game").classList.add("on");
+  // watch-only: hide the panels that act on a player's own state
+  for (const id of ["actionsPanel", "randomPanel", "avPanel", "lifePlus", "lifeMinus", "poisonPlus", "poisonMinus"]) $(id).style.display = "none";
+  specLabels();
+  sysLog("You are spectating — board, log and chat are live. Hands, libraries and sideboards stay hidden.");
+  renderAll();
 }
 
 function wireConn() {
@@ -729,7 +813,43 @@ function wireConn() {
   conn.on("close", () => { setConn(false); stopAVAll(); toast(G.oppName + " disconnected"); sysLog(esc(G.oppName) + " disconnected."); });
 }
 
-function send(t, p) { if (conn && conn.open) conn.send({ t, p }); }
+function send(t, p) {
+  if (conn && conn.open) conn.send({ t, p });
+  if (G.side === "host" && spectators.length) {
+    if (t === "state" || t === "flow" || t === "log") relaySpec(t, p, "host");
+    else if (t === "chat") relaySpec("chat", { text: p.text, name: G.myName }, "host");
+  }
+}
+
+/* ---- spectators (host relays both players' public info) ---- */
+
+function relaySpec(t, p, from) {
+  for (const s of spectators) if (s.conn.open) s.conn.send({ t, p, from });
+}
+
+function wireSpectator(c) {
+  c.on("open", () => {
+    const name = String((c.metadata && c.metadata.name) || "Spectator").slice(0, 20);
+    spectators.push({ conn: c, name });
+    c.send({ t: "snapshot", p: { host: publicState(), guest: G.lastGuestState || null, flow: G.flow, hostName: G.myName, guestName: G.connected ? G.oppName : null } });
+    const note = "<i>" + esc(name) + " is now spectating.</i>";
+    addLog(note, "sys", true);
+    if (conn && conn.open) conn.send({ t: "log", p: { text: note } });
+    relaySpec("log", { text: note }, "sys");
+  });
+  c.on("data", m => {
+    if (!m || typeof m !== "object" || m.t !== "chat") return;
+    const name = String((c.metadata && c.metadata.name) || "Spectator").slice(0, 20);
+    const html = "<span class='who'>" + esc(name) + " (spectator):</span> " + esc(String((m.p && m.p.text) || "").slice(0, 300));
+    addLog(html, "sys", true);
+    if (conn && conn.open) conn.send({ t: "log", p: { text: html } });
+    for (const s of spectators) if (s.conn !== c && s.conn.open) s.conn.send({ t: "log", p: { text: html }, from: "sys" });
+  });
+  c.on("close", () => {
+    const i = spectators.findIndex(s => s.conn === c);
+    if (i >= 0) { addLog("<i>" + esc(spectators[i].name) + " stopped spectating.</i>", "sys", true); spectators.splice(i, 1); }
+  });
+}
 
 function setConn(on) {
   G.connected = on;
@@ -739,6 +859,14 @@ function setConn(on) {
 
 function handleMsg(m) {
   if (!m || typeof m !== "object") return;
+  if (G.spectator) { handleSpecMsg(m); return; }
+  if (m.t === "snapshot") {
+    // we tried to join as a player but both seats are taken — watch instead
+    G.spectator = true; G.side = "spec";
+    toast("Both player seats are taken — you're spectating instead.");
+    handleSpecMsg(m);
+    return;
+  }
   switch (m.t) {
     case "hello":
       G.oppName = String(m.p.name || "Opponent").slice(0, 20);
@@ -746,9 +874,17 @@ function handleMsg(m) {
       if (!G.connected) startGame();
       send("state", publicState());
       sendAV();
+      if (G.side === "host") relaySpec("names", { hostName: G.myName, guestName: G.oppName }, "host");
       break;
-    case "state": applyOppState(m.p); renderAll(); break;
-    case "flow": G.flow = m.p; onFlowChanged(); renderAll(); break;
+    case "state":
+      G.lastGuestState = m.p;
+      applyOppState(m.p); renderAll();
+      if (G.side === "host") relaySpec("state", m.p, "guest");
+      break;
+    case "flow":
+      G.flow = m.p; onFlowChanged(); renderAll();
+      if (G.side === "host") relaySpec("flow", m.p, "guest");
+      break;
     case "pass": onOppPass(); break;
     case "flip": promptPlayDraw("You won the coin flip!"); break;
     case "dmg": { const c = G.me.field.find(x => x.id === m.p.id); if (c) applyDamage(c, m.p.amount | 0); break; }
@@ -761,8 +897,14 @@ function handleMsg(m) {
     case "av":
       AV.opp = { camOn: !!m.p.camOn, micOn: !!m.p.micOn, avatar: m.p.avatar | 0 };
       renderAV(); break;
-    case "log": addLog(m.p.text, "opp", true); break;
-    case "chat": addLog("<span class='who'>" + esc(G.oppName) + ":</span> " + esc(m.p.text), "opp", true); break;
+    case "log":
+      addLog(m.p.text, "opp", true);
+      if (G.side === "host") relaySpec("log", m.p, "guest");
+      break;
+    case "chat":
+      addLog("<span class='who'>" + esc(G.oppName) + ":</span> " + esc(m.p.text), "opp", true);
+      if (G.side === "host") relaySpec("chat", { text: m.p.text, name: G.oppName }, "guest");
+      break;
   }
 }
 
@@ -776,7 +918,9 @@ function startGame() {
   $("oppPermLbl").textContent = G.oppName + " — Permanents";
   sysLog("Connected. Right-click cards for full menus; the gold button drives the game. Use 🎥/🎤 in the right panel for video & voice chat.");
   renderAll(); renderAV(); pushState();
-  if (G.side === "host") chooseFirstPlayer();
+  // open the chooser after the connection burst settles; the gold prompt
+  // button can always reopen it while the game hasn't started
+  if (G.side === "host") setTimeout(() => { if (!G.flow.started) chooseFirstPlayer(); }, 300);
 }
 
 /* ---- first player decision ---- */
@@ -1199,7 +1343,7 @@ function resolveTop() {
 /* turn / phases */
 function onFlowChanged() {
   const f = G.flow;
-  if (!f.started) return;
+  if (G.spectator || !f.started) return;
   if (f.num !== G.lastTurnSeen) {
     G.lastTurnSeen = f.num;
     clearMyDamage(); clearCombatFlags();
@@ -1369,6 +1513,7 @@ function cardDiv(c, mine, zone, small) {
   d.title = showImg || mine ? c.name + (c.pt ? "  " + c.pt : "") : "Face-down card";
 
   d.addEventListener("click", ev => {
+    if (G.spectator) return;
     if (Targeting.active && zone === "field") {
       pickTarget({ id: c.id, name: c.name, side: mine ? G.side : other(G.side) });
       return;
@@ -1386,6 +1531,7 @@ function cardDiv(c, mine, zone, small) {
   });
   d.addEventListener("contextmenu", ev => {
     ev.preventDefault();
+    if (G.spectator) return;
     openCardMenu(c, zone, mine, ev.clientX, ev.clientY);
   });
   if (mine) {
@@ -1417,20 +1563,28 @@ function pileTop(el, arr) {
 
 function renderAll() {
   if (!$("game").classList.contains("on")) return;
-  renderSide("my", G.me.field, true);
+  renderSide("my", G.me.field, !G.spectator);
   renderSide("opp", G.opp.field, false);
 
   const hr = $("handRow"); hr.querySelectorAll(".card").forEach(n => n.remove());
-  for (const c of G.me.hand) hr.appendChild(cardDiv(c, true, "hand"));
+  if (G.spectator) {
+    for (let i = 0; i < (G.me.handCount | 0); i++) {
+      const b = document.createElement("div");
+      b.className = "card g facedown";
+      hr.appendChild(b);
+    }
+  } else {
+    for (const c of G.me.hand) hr.appendChild(cardDiv(c, true, "hand"));
+  }
 
-  $("myLibCnt").textContent = G.me.library.length;
+  $("myLibCnt").textContent = G.spectator ? (G.me.libCount | 0) : G.me.library.length;
   $("myGraveCnt").textContent = G.me.grave.length;
   $("myExileCnt").textContent = G.me.exile.length;
   pileTop($("myGravePile"), G.me.grave);
   pileTop($("myExilePile"), G.me.exile);
   $("myLife").textContent = G.me.life;
   $("myPoison").textContent = G.me.poison;
-  $("mySideCnt").textContent = G.me.sideboard.length;
+  $("mySideCnt").textContent = G.spectator ? (G.me.sideCount | 0) : G.me.sideboard.length;
   $("oppSideCnt").textContent = G.opp.sideCount;
   $("oppLibCnt").textContent = G.opp.libCount;
   $("oppGraveCnt").textContent = G.opp.grave.length;
@@ -1472,8 +1626,14 @@ function renderAll() {
 
   // turn column
   const f = G.flow, mine = isMyTurn();
-  $("turnWho").textContent = !f.started ? "Pre-game" : (mine ? "Your turn" : G.oppName + "'s turn");
-  $("turnWho").className = "phase " + (mine ? "mine" : "theirs");
+  if (G.spectator) {
+    const n = G.specNames || { host: "Host", guest: "Guest" };
+    $("turnWho").textContent = !f.started ? "Pre-game" : (f.active === "host" ? n.host : n.guest) + "'s turn";
+    $("turnWho").className = "phase " + (f.active === "host" ? "mine" : "theirs");
+  } else {
+    $("turnWho").textContent = !f.started ? "Pre-game" : (mine ? "Your turn" : G.oppName + "'s turn");
+    $("turnWho").className = "phase " + (mine ? "mine" : "theirs");
+  }
   $("turnNum").textContent = f.started ? "turn " + f.num + " — " + PHASES[f.phase] : "";
   const pt = $("phaseTrack"); pt.innerHTML = "";
   PHASES.forEach((p, i) => {
@@ -1492,6 +1652,12 @@ function refreshPrompt() {
   B.style.display = "none"; A.disabled = false; A.className = "primary";
   A.onclick = null; B.onclick = null;
 
+  if (G.spectator) {
+    const n = G.specNames || { host: "Host", guest: "Guest" };
+    L.textContent = n.host + " vs " + n.guest;
+    A.textContent = "👁 Spectating"; A.disabled = true;
+    return;
+  }
   if (Targeting.active) {
     L.textContent = Targeting.label + " (" + Targeting.refs.length + "/" + Targeting.needed + ")";
     A.textContent = "Cancel targeting"; A.className = "danger";
@@ -1499,8 +1665,14 @@ function refreshPrompt() {
     return;
   }
   if (!f.started) {
-    L.textContent = G.side === "host" ? "Decide who goes first" : "Waiting for " + G.oppName + " to set up the flip…";
-    A.textContent = "…"; A.disabled = true;
+    if (G.side === "host") {
+      L.textContent = "Decide who goes first — choose or flip a coin";
+      A.textContent = "Choose first player ▸";
+      A.onclick = chooseFirstPlayer;
+    } else {
+      L.textContent = "Waiting for " + G.oppName + " to choose / flip for first player…";
+      A.textContent = "…"; A.disabled = true;
+    }
     return;
   }
   if (f.stack.length) {
@@ -1708,7 +1880,10 @@ function wireDrop(elId, target) {
 
 /* ================= Modals (zone viewers etc.) ================= */
 
+let modalSticky = false;
 function showModal(title, bodyBuilder, buttons) {
+  // modals with no footer buttons require a choice — backdrop clicks won't dismiss them
+  modalSticky = Array.isArray(buttons) && buttons.length === 0;
   $("modalTitle").textContent = title;
   const body = $("modalBody"); body.innerHTML = "";
   bodyBuilder(body);
@@ -1723,7 +1898,7 @@ function showModal(title, bodyBuilder, buttons) {
   $("modalWrap").classList.add("on");
 }
 function closeModal() { $("modalWrap").classList.remove("on"); }
-$("modalWrap").addEventListener("click", e => { if (e.target === $("modalWrap")) closeModal(); });
+$("modalWrap").addEventListener("click", e => { if (e.target === $("modalWrap") && !modalSticky) closeModal(); });
 
 function mcardEl(c, actions) {
   const d = document.createElement("div");
@@ -2134,6 +2309,7 @@ $("btnSample").addEventListener("click", () => {
 $("btnEditDeck").addEventListener("click", deckEditor);
 $("btnHost").addEventListener("click", () => { confirmName(); hostGame(); });
 $("btnJoin").addEventListener("click", () => { confirmName(); joinGame(); });
+$("btnSpec").addEventListener("click", joinSpectate);
 function confirmName() { G.myName = ($("playerName").value.trim() || "Player-" + gameCode().slice(0, 3)).slice(0, 20); }
 
 $("lifePlus").addEventListener("click", () => { G.me.life++; myLog("is at " + G.me.life + " life"); pushState(); });
@@ -2163,11 +2339,17 @@ $("btnCoin").addEventListener("click", () => myLog("flips a coin: <b>" + (Math.r
 $("btnD6").addEventListener("click", () => myLog("rolls a d6: <b>" + (1 + Math.floor(Math.random() * 6)) + "</b>"));
 $("btnD20").addEventListener("click", () => myLog("rolls a d20: <b>" + (1 + Math.floor(Math.random() * 20)) + "</b>"));
 
-$("myLibPile").addEventListener("click", e => libraryMenu(e.clientX, e.clientY));
-$("myLibPile").addEventListener("contextmenu", e => { e.preventDefault(); libraryMenu(e.clientX, e.clientY); });
-$("myGravePile").addEventListener("click", () => viewMyZone("grave", "Your graveyard"));
-$("myExilePile").addEventListener("click", () => viewMyZone("exile", "Your exile"));
-$("mySidePile").addEventListener("click", viewSideboard);
+function viewListZone(list, title) {
+  showModal(title + " (" + list.length + ")", body => {
+    for (const c of [...list].reverse()) body.appendChild(mcardEl(c, []));
+    if (!list.length) body.textContent = "Empty.";
+  });
+}
+$("myLibPile").addEventListener("click", e => { if (G.spectator) { toast("Library is hidden (" + (G.me.libCount | 0) + " cards)."); return; } libraryMenu(e.clientX, e.clientY); });
+$("myLibPile").addEventListener("contextmenu", e => { e.preventDefault(); if (!G.spectator) libraryMenu(e.clientX, e.clientY); });
+$("myGravePile").addEventListener("click", () => G.spectator ? viewListZone(G.me.grave, (G.specNames ? G.specNames.host : "Host") + "'s graveyard") : viewMyZone("grave", "Your graveyard"));
+$("myExilePile").addEventListener("click", () => G.spectator ? viewListZone(G.me.exile, (G.specNames ? G.specNames.host : "Host") + "'s exile") : viewMyZone("exile", "Your exile"));
+$("mySidePile").addEventListener("click", () => { if (G.spectator) { toast("Sideboards are hidden from spectators."); return; } viewSideboard(); });
 $("oppGravePile").addEventListener("click", () => viewOppZone("grave", "graveyard"));
 $("oppExilePile").addEventListener("click", () => viewOppZone("exile", "exile"));
 $("oppSidePile").addEventListener("click", () => toast(G.oppName + "'s sideboard is hidden — it's outside the game (" + G.opp.sideCount + " cards)."));
@@ -2190,7 +2372,8 @@ $("chatForm").addEventListener("submit", e => {
 
 $("btnHelp").addEventListener("click", () => showModal("How to play", body => {
   body.innerHTML = `<div style="font-size:13px;line-height:1.65;color:var(--txt)">
-  <b>Start.</b> Both players load a deck and connect with the game code. The host chooses: pick the starting player together, or coin flip — the flip winner chooses play or draw. Opening hands of 7 are drawn automatically (mulligan from the side panel).<br/><br/>
+  <b>Start.</b> Both players load a deck and connect with the game code. The host chooses: pick the starting player together, or coin flip — the flip winner chooses play or draw. If the chooser window gets closed, the gold prompt button reopens it. Opening hands of 7 are drawn automatically (mulligan from the side panel).<br/><br/>
+  <b>Spectators.</b> Anyone with the game code can watch: on the start screen use <i>Spectate</i> (no deck needed). Spectators see both battlefields, graveyards, exiles, life totals, the stack and the full log live, can chat with the players, and never see hands, libraries or sideboards.<br/><br/>
   <b>The gold button</b> drives the game like MTG Arena's prompt: it advances your phases, confirms attackers/blockers, and resolves the stack. Untap and the draw step happen automatically at the start of your turn.<br/><br/>
   <b>Casting.</b> Click a card in hand to cast it. Timing is enforced (sorcery-speed only in your main phases with an empty stack; instants &amp; flash anytime). Modal spells ask you to choose modes; spells that say “target” make you click targets (cards, players, or stack items). The spell goes on the <b>stack</b>; your opponent gets priority to respond (APNAP), and when they click <i>Resolve</i> it resolves — permanents enter the battlefield, instants/sorceries go to the graveyard and you apply their effects. ETB triggered abilities are detected and you're prompted to put them on the stack — ordering is asked when there are several.<br/><br/>
   <b>Lands.</b> One land per turn, on your turn, in a main phase. If an ability allows more, right-click → extra land. The battlefield has two zones: lands on the row nearest you, every other permanent on the row above.<br/><br/>
