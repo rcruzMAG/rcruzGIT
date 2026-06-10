@@ -190,6 +190,36 @@
   .pname { font-size: 11px; color: var(--muted); padding: 0 4px; flex-shrink: 0; }
   .pname b { color: var(--txt); }
 
+  /* video / avatar tiles */
+  .avtile {
+    position: relative; width: 100%; aspect-ratio: 16/10; background: #0e1019;
+    border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin-bottom: 6px;
+  }
+  .avtile video, .avtile canvas { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .avtile canvas { image-rendering: pixelated; }
+  .avtile.mirror video { transform: scaleX(-1); }
+  .avtile .avname {
+    position: absolute; bottom: 3px; left: 5px; font-size: 10.5px; font-weight: 600;
+    background: rgba(10,12,18,.7); border-radius: 6px; padding: 1px 7px; max-width: 70%;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .avtile .avmic {
+    position: absolute; top: 3px; right: 5px; font-size: 11px;
+    background: rgba(10,12,18,.7); border-radius: 6px; padding: 1px 6px;
+  }
+  .avtile .avmic.off { color: var(--red); }
+  .avbtns { display: flex; gap: 5px; }
+  .avbtns button { flex: 1; padding: 5px 4px; font-size: 11.5px; }
+  .avbtns button.avon { background: var(--green); border-color: var(--green); color: #06210f; font-weight: 700; }
+  .avset-row { width: 100%; display: flex; flex-direction: column; gap: 4px; }
+  .avset-row label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; }
+  .avset-row select { width: 100%; background: #0e1019; color: var(--txt); border: 1px solid var(--line); border-radius: 7px; padding: 7px 9px; font-size: 13px; }
+  .avgrid { display: flex; flex-wrap: wrap; gap: 8px; width: 100%; }
+  .avpick { display: flex; flex-direction: column; align-items: center; gap: 3px; cursor: pointer; }
+  .avpick canvas { width: 72px; height: 72px; image-rendering: pixelated; border: 2px solid var(--line); border-radius: 8px; }
+  .avpick.sel canvas { border-color: var(--gold); box-shadow: 0 0 10px rgba(212,175,90,.5); }
+  .avpick span { font-size: 10px; color: var(--muted); }
+
   /* log */
   #log { flex: 1; overflow-y: auto; font-size: 12px; display: flex; flex-direction: column; gap: 4px; padding: 4px 2px; min-height: 120px; }
   #log .e { padding: 4px 8px; border-radius: 7px; background: rgba(255,255,255,.03); border-left: 2px solid var(--line); line-height: 1.35; }
@@ -392,6 +422,27 @@
 
   <!-- right sidebar -->
   <div class="sidebar right">
+    <div class="panel" id="avPanel">
+      <h3>Players — video &amp; voice</h3>
+      <div class="avtile" id="oppTile">
+        <video id="oppVideo" autoplay playsinline></video>
+        <canvas id="oppAvCanvas"></canvas>
+        <span class="avname" id="oppAvName">Opponent</span>
+        <span class="avmic" id="oppMicIco">🎤 off</span>
+      </div>
+      <div class="avtile mirror" id="myTile">
+        <video id="myVideo" autoplay playsinline muted></video>
+        <canvas id="myAvCanvas"></canvas>
+        <span class="avname" id="myAvName">You</span>
+        <span class="avmic" id="myMicIco">🎤 off</span>
+      </div>
+      <div class="avbtns">
+        <button id="btnCam" title="Toggle camera — your 8-bit avatar is shown while it's off">🎥 Cam</button>
+        <button id="btnMic" title="Toggle voice chat">🎤 Voice</button>
+        <button id="btnAVSet" title="Camera / mic / speaker devices and avatar" style="flex:0 0 38px">⚙</button>
+      </div>
+      <audio id="oppAudio" autoplay></audio>
+    </div>
     <div class="panel" style="flex:1;display:flex;flex-direction:column;min-height:0">
       <h3>Game log &amp; chat</h3>
       <div id="log"></div>
@@ -613,6 +664,7 @@ function hostGame() {
     $("netStatus").textContent = "Share this code with your opponent. Waiting for them to join…";
   });
   peer.on("connection", c => { conn = c; wireConn(); });
+  peer.on("call", onIncomingCall);
   peer.on("error", e => netError(e));
 }
 
@@ -623,6 +675,7 @@ function joinGame() {
   $("netStatus").textContent = "Connecting…";
   peer = new Peer({ debug: 1 });
   peer.on("open", () => { conn = peer.connect(peerId(code), { reliable: true }); wireConn(); });
+  peer.on("call", onIncomingCall);
   peer.on("error", e => netError(e));
 }
 
@@ -640,7 +693,7 @@ function netError(e) {
 function wireConn() {
   conn.on("open", () => send("hello", { name: G.myName }));
   conn.on("data", handleMsg);
-  conn.on("close", () => { setConn(false); toast(G.oppName + " disconnected"); sysLog(esc(G.oppName) + " disconnected."); });
+  conn.on("close", () => { setConn(false); stopAVAll(); toast(G.oppName + " disconnected"); sysLog(esc(G.oppName) + " disconnected."); });
 }
 
 function send(t, p) { if (conn && conn.open) conn.send({ t, p }); }
@@ -659,6 +712,7 @@ function handleMsg(m) {
       if (!saidHello) { saidHello = true; send("hello", { name: G.myName }); }
       if (!G.connected) startGame();
       send("state", publicState());
+      sendAV();
       break;
     case "state": applyOppState(m.p); renderAll(); break;
     case "flow": G.flow = m.p; onFlowChanged(); renderAll(); break;
@@ -671,6 +725,9 @@ function handleMsg(m) {
       myLog("takes " + n + " damage → " + G.me.life + " life");
       pushState(); break;
     }
+    case "av":
+      AV.opp = { camOn: !!m.p.camOn, micOn: !!m.p.micOn, avatar: m.p.avatar | 0 };
+      renderAV(); break;
     case "log": addLog(m.p.text, "opp", true); break;
     case "chat": addLog("<span class='who'>" + esc(G.oppName) + ":</span> " + esc(m.p.text), "opp", true); break;
   }
@@ -684,8 +741,8 @@ function startGame() {
   $("myNameLbl").textContent = G.myName;
   $("oppNameLbl").textContent = G.oppName;
   $("oppCreatLbl").textContent = G.oppName + " — Creatures";
-  sysLog("Connected. Right-click cards for full menus; the gold button drives the game.");
-  renderAll(); pushState();
+  sysLog("Connected. Right-click cards for full menus; the gold button drives the game. Use 🎥/🎤 in the right panel for video & voice chat.");
+  renderAll(); renderAV(); pushState();
   if (G.side === "host") chooseFirstPlayer();
 }
 
@@ -1761,6 +1818,253 @@ function libraryMenu(x, y) {
   ], x, y);
 }
 
+/* ================= Video / voice chat & 8-bit avatars ================= */
+/* Original pixel-art sprites in classic planeswalker archetypes (no WotC art). */
+
+const AV = {
+  stream: null, call: null, inCall: null, remoteStream: null,
+  camOn: false, micOn: false, avatar: 0,
+  devices: { cam: "", mic: "", out: "" },
+  opp: { camOn: false, micOn: false, avatar: 0 },
+};
+
+const SPRITES = {
+  mage: [
+    "................",
+    ".....HHHHHH.....",
+    "....HHHHHHHH....",
+    "...HHHHHHHHHH...",
+    "...HHhhhhhhHH...",
+    "...HHssssssHH...",
+    "...HHsEssEsHH...",
+    "...HHssssssHH...",
+    "....HssssssH....",
+    "....CCCCCCCC....",
+    "...CCCCCCCCCC...",
+    "...CCgCCCCgCC...",
+    "..CCCCCCCCCCCC..",
+    "..CCCCggCCCCCC..",
+    "..CCCCCCCCCCCC..",
+    "..CCCCCCCCCCCC..",
+  ],
+  flame: [
+    "....F..F..F.....",
+    "...FfF.Ff.FfF...",
+    "...ffffffffff...",
+    "..ffffffffffff..",
+    "..ffhhhhhhhhff..",
+    "...hssssssssh...",
+    "...hsEssssEsh...",
+    "...hssssssssh...",
+    "....ssssssss....",
+    ".....ssssss.....",
+    "....CCCCCCCC....",
+    "...CCCCCCCCCC...",
+    "..CCsCCCCCCsCC..",
+    "..CCCCCCCCCCCC..",
+    "..CCCgCCCCgCCC..",
+    "..CCCCCCCCCCCC..",
+  ],
+  knight: [
+    "................",
+    "....MMMMMMMM....",
+    "...MMMMMMMMMM...",
+    "...MgMMMMMMgM...",
+    "...MMMMMMMMMM...",
+    "...MMhhhhhhMM...",
+    "...MMsEssEsMM...",
+    "...MMssssssMM...",
+    "....MMMMMMMM....",
+    "....CCCCCCCC....",
+    "...CCCCCCCCCC...",
+    "..CCMCCCCCCMCC..",
+    "..CCCCCCCCCCCC..",
+    "..CCCMMMMMMCCC..",
+    "..CCCCCCCCCCCC..",
+    "..CCCCCCCCCCCC..",
+  ],
+};
+
+const AVATARS = [
+  { name: "Pyromancer",  tpl: "flame",  pal: { bg: "#2a1015", F: "#ffe66d", f: "#ff7a2f", h: "#c2401f", s: "#f2c79b", E: "#ff3b1f", C: "#8c2f1f", g: "#ffd34d" } },
+  { name: "Telepath",    tpl: "mage",   pal: { bg: "#0d1530", H: "#2e5fd4", h: "#1d3a8c", s: "#e8c39d", E: "#66e0ff", C: "#24407a", g: "#66e0ff" } },
+  { name: "Necromancer", tpl: "mage",   pal: { bg: "#160a24", H: "#5b2a8c", h: "#3a1a5e", s: "#cfd6cf", E: "#b16dff", C: "#2c1545", g: "#8a5cff" } },
+  { name: "Wildspeaker", tpl: "flame",  pal: { bg: "#0f2012", F: "#b8f06a", f: "#4f9e3a", h: "#2e6b22", s: "#d8a06a", E: "#7ee07e", C: "#3f6b2e", g: "#ffd34d" } },
+  { name: "Justicar",    tpl: "knight", pal: { bg: "#20242e", M: "#e8e6df", h: "#6b6757", s: "#e8c39d", E: "#2f4a8c", C: "#d9d4c2", g: "#ffd34d" } },
+  { name: "Artificer",   tpl: "knight", pal: { bg: "#141821", M: "#8c93a6", h: "#4a4f60", s: "#e8c39d", E: "#ffb347", C: "#5a6275", g: "#e08a3c" } },
+];
+
+function drawAvatar(canvas, idx, square) {
+  const av = AVATARS[((idx | 0) % AVATARS.length + AVATARS.length) % AVATARS.length];
+  const W = square ? 16 : 26, H = 16, ox = square ? 0 : 5;
+  canvas.width = W; canvas.height = H;
+  const c = canvas.getContext("2d");
+  c.fillStyle = av.pal.bg; c.fillRect(0, 0, W, H);
+  const tpl = SPRITES[av.tpl];
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+    const ch = tpl[y][x];
+    if (ch === ".") continue;
+    c.fillStyle = av.pal[ch] || "#ffffff";
+    c.fillRect(x + ox, y, 1, 1);
+  }
+  return av;
+}
+
+function sendAV() { send("av", { camOn: AV.camOn, micOn: AV.micOn, avatar: AV.avatar }); }
+
+function renderAV() {
+  if (!$("game").classList.contains("on")) return;
+  const myVid = AV.camOn && AV.stream && AV.stream.getVideoTracks().some(t => t.readyState === "live");
+  $("myVideo").style.display = myVid ? "" : "none";
+  $("myAvCanvas").style.display = myVid ? "none" : "";
+  if (!myVid) drawAvatar($("myAvCanvas"), AV.avatar);
+  $("myMicIco").textContent = AV.micOn ? "🎤 on" : "🎤 off";
+  $("myMicIco").className = "avmic" + (AV.micOn ? "" : " off");
+  $("myAvName").textContent = G.myName;
+
+  const oppVid = AV.opp.camOn && AV.remoteStream && AV.remoteStream.getVideoTracks().length > 0;
+  $("oppVideo").style.display = oppVid ? "" : "none";
+  $("oppAvCanvas").style.display = oppVid ? "none" : "";
+  if (!oppVid) drawAvatar($("oppAvCanvas"), AV.opp.avatar);
+  $("oppMicIco").textContent = AV.opp.micOn ? "🎤 on" : "🎤 off";
+  $("oppMicIco").className = "avmic" + (AV.opp.micOn ? "" : " off");
+  $("oppAvName").textContent = G.oppName;
+
+  $("btnCam").classList.toggle("avon", AV.camOn);
+  $("btnMic").classList.toggle("avon", AV.micOn);
+}
+
+async function restartMedia() {
+  if (AV.stream) { AV.stream.getTracks().forEach(t => t.stop()); AV.stream = null; }
+  if (AV.call) { AV.call.close(); AV.call = null; }
+  $("myVideo").srcObject = null;
+  if (AV.camOn || AV.micOn) {
+    const cs = {
+      video: AV.camOn ? (AV.devices.cam ? { deviceId: { exact: AV.devices.cam } } : true) : false,
+      audio: AV.micOn ? (AV.devices.mic ? { deviceId: { exact: AV.devices.mic } } : true) : false,
+    };
+    try {
+      AV.stream = await navigator.mediaDevices.getUserMedia(cs);
+      $("myVideo").srcObject = AV.stream;
+      if (conn && conn.open && peer && !peer.destroyed) AV.call = peer.call(conn.peer, AV.stream);
+    } catch (e) {
+      toast("Camera/mic unavailable: " + e.message);
+      AV.camOn = false; AV.micOn = false;
+    }
+  }
+  sendAV(); renderAV();
+}
+
+function onIncomingCall(call) {
+  if (AV.inCall) AV.inCall.close();
+  AV.inCall = call;
+  call.answer();   // one-way: each side initiates its own outgoing call
+  call.on("stream", s => {
+    AV.remoteStream = s;
+    $("oppVideo").srcObject = s;
+    $("oppAudio").srcObject = s;
+    applySink();
+    renderAV();
+  });
+  call.on("close", () => {
+    if (AV.inCall !== call) return;
+    AV.inCall = null; AV.remoteStream = null;
+    $("oppVideo").srcObject = null; $("oppAudio").srcObject = null;
+    renderAV();
+  });
+}
+
+function applySink() {
+  const a = $("oppAudio");
+  if (AV.devices.out && typeof a.setSinkId === "function") a.setSinkId(AV.devices.out).catch(() => {});
+}
+
+async function listDevices() {
+  try {
+    const all = await navigator.mediaDevices.enumerateDevices();
+    return {
+      cams: all.filter(d => d.kind === "videoinput"),
+      mics: all.filter(d => d.kind === "audioinput"),
+      outs: all.filter(d => d.kind === "audiooutput"),
+    };
+  } catch (_) { return { cams: [], mics: [], outs: [] }; }
+}
+
+async function avSettings() {
+  // a quick permission request makes device labels readable
+  if (!AV.stream) {
+    try { (await navigator.mediaDevices.getUserMedia({ audio: true })).getTracks().forEach(t => t.stop()); } catch (_) {}
+  }
+  const dv = await listDevices();
+  let pickedAvatar = AV.avatar;
+  const sel = {};
+  showModal("Video, voice & avatar", body => {
+    body.style.flexDirection = "column"; body.style.flexWrap = "nowrap";
+    const mkSel = (label, list, cur, allowDefault) => {
+      const row = document.createElement("div");
+      row.className = "avset-row";
+      const l = document.createElement("label"); l.textContent = label;
+      const s = document.createElement("select");
+      const d = document.createElement("option"); d.value = ""; d.textContent = allowDefault; s.appendChild(d);
+      list.forEach((dev, i) => {
+        const o = document.createElement("option");
+        o.value = dev.deviceId; o.textContent = dev.label || (label + " " + (i + 1));
+        if (dev.deviceId === cur) o.selected = true;
+        s.appendChild(o);
+      });
+      row.append(l, s); body.appendChild(row);
+      return s;
+    };
+    sel.cam = mkSel("Camera", dv.cams, AV.devices.cam, "System default camera");
+    sel.mic = mkSel("Microphone", dv.mics, AV.devices.mic, "System default microphone");
+    sel.out = mkSel("Audio output", dv.outs, AV.devices.out, "System default speaker");
+    if (!dv.outs.length || typeof $("oppAudio").setSinkId !== "function") {
+      const n = document.createElement("div");
+      n.style.cssText = "font-size:11px;color:var(--muted)";
+      n.textContent = "Output selection needs a Chromium-based browser; otherwise the system default is used.";
+      body.appendChild(n);
+    }
+    const al = document.createElement("label");
+    al.textContent = "Avatar (shown to your opponent while your camera is off)";
+    al.className = "avset-row"; body.appendChild(al);
+    const grid = document.createElement("div"); grid.className = "avgrid";
+    AVATARS.forEach((av, i) => {
+      const p = document.createElement("div");
+      p.className = "avpick" + (i === pickedAvatar ? " sel" : "");
+      const cv = document.createElement("canvas");
+      drawAvatar(cv, i, true);
+      const nm = document.createElement("span"); nm.textContent = av.name;
+      p.append(cv, nm);
+      p.onclick = () => {
+        pickedAvatar = i;
+        grid.querySelectorAll(".avpick").forEach(x => x.classList.remove("sel"));
+        p.classList.add("sel");
+      };
+      grid.appendChild(p);
+    });
+    body.appendChild(grid);
+  }, [
+    { label: "Apply", primary: true, fn: () => {
+        const changedDev = sel.cam.value !== AV.devices.cam || sel.mic.value !== AV.devices.mic;
+        AV.devices.cam = sel.cam.value; AV.devices.mic = sel.mic.value; AV.devices.out = sel.out.value;
+        AV.avatar = pickedAvatar;
+        applySink();
+        if ((AV.camOn || AV.micOn) && changedDev) restartMedia();
+        else { sendAV(); renderAV(); }
+      } },
+    { label: "Cancel" },
+  ]);
+}
+
+function stopAVAll() {
+  if (AV.stream) { AV.stream.getTracks().forEach(t => t.stop()); AV.stream = null; }
+  if (AV.call) { AV.call.close(); AV.call = null; }
+  if (AV.inCall) { AV.inCall.close(); AV.inCall = null; }
+  AV.remoteStream = null;
+  $("oppVideo").srcObject = null; $("oppAudio").srcObject = null; $("myVideo").srcObject = null;
+  renderAV();
+}
+
 /* ================= Wiring ================= */
 
 $("btnLoadDeck").addEventListener("click", loadDeck);
@@ -1793,6 +2097,9 @@ $("btnHold").addEventListener("click", () => {
   toast(G.flow.hold[G.side] ? "End-step stop ON — opponent will pause before passing the turn." : "End-step stop off.");
   bflow();
 });
+$("btnCam").addEventListener("click", () => { AV.camOn = !AV.camOn; restartMedia(); });
+$("btnMic").addEventListener("click", () => { AV.micOn = !AV.micOn; restartMedia(); });
+$("btnAVSet").addEventListener("click", avSettings);
 $("btnCoin").addEventListener("click", () => myLog("flips a coin: <b>" + (Math.random() < .5 ? "Heads" : "Tails") + "</b>"));
 $("btnD6").addEventListener("click", () => myLog("rolls a d6: <b>" + (1 + Math.floor(Math.random() * 6)) + "</b>"));
 $("btnD20").addEventListener("click", () => myLog("rolls a d20: <b>" + (1 + Math.floor(Math.random() * 20)) + "</b>"));
@@ -1827,6 +2134,7 @@ $("btnHelp").addEventListener("click", () => showModal("How to play", body => {
   <b>Lands.</b> One land per turn, on your turn, in a main phase. If an ability allows more, right-click → extra land.<br/><br/>
   <b>Combat.</b> In the Attackers step click creatures to attack, or use <i>Attack all</i> — creatures that just arrived (summoning sickness, no haste), tapped ones and defenders are excluded; attackers tap unless they have vigilance. The defender then declares blockers and confirms. Mark damage from card menus — lethal damage destroys creatures automatically (indestructible respected), and all damage wears off at end of turn.<br/><br/>
   <b>Stops.</b> Toggle <i>End-step stop</i> to get priority at your opponent's end step before they pass the turn. You can cast instants at any time.<br/><br/>
+  <b>Video &amp; voice.</b> Use 🎥 and 🎤 in the right panel to share your camera and talk over the same peer-to-peer link. The ⚙ button picks your camera, microphone and speaker, and lets you choose an 8-bit avatar that's shown whenever your camera is off.<br/><br/>
   <b>Overrides.</b> The engine automates what's printed on the cards it can read; anything else (mana costs, replacement effects, static buffs…) is yours to apply — every card has a right-click menu with manual controls and force/override options.<br/><br/>
   <span style="color:var(--muted)">Unofficial fan project. Card data &amp; images from Scryfall. Magic: The Gathering is © Wizards of the Coast.</span></div>`;
 }));
