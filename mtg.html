@@ -164,8 +164,8 @@
   .card.tapped { transform: rotate(90deg) scale(.94); margin: 0 14px; }
   .card.tapped:hover { transform: rotate(90deg) scale(1); }
   .card.attacking { border-color: var(--red); box-shadow: 0 0 14px rgba(228,87,79,.65); animation: pulseRed 1.4s infinite; }
-  #myCreatures .card.attacking:not(.tapped) { transform: translateY(-9px); }
-  #oppCreatures .card.attacking:not(.tapped) { transform: translateY(9px); }
+  #myPerms .card.attacking:not(.tapped) { transform: translateY(-9px); }
+  #oppPerms .card.attacking:not(.tapped) { transform: translateY(9px); }
   .card.blocking { border-color: var(--blue); box-shadow: 0 0 14px rgba(79,143,228,.65); }
   .card.targeted { border-color: var(--red); box-shadow: 0 0 14px var(--red); }
   .card.targetable { outline: 2px dashed rgba(228,87,79,.7); cursor: crosshair; }
@@ -287,15 +287,19 @@
     <label>Your name</label>
     <input type="text" id="playerName" maxlength="20" placeholder="Planeswalker" />
 
-    <label>Deck list (one card per line — e.g. “4 Lightning Bolt”. MTGA / MTGO / plain formats; sideboard ignored)</label>
+    <label>Deck list (one card per line — e.g. “4 Lightning Bolt”. MTGA / MTGO / plain formats; put sideboard cards under a “Sideboard” line)</label>
     <textarea id="deckText" placeholder="4 Lightning Bolt
 4 Monastery Swiftspear
-2 Light Up the Stage (RNA) 107
 20 Mountain
+...
+
+Sideboard
+3 Smash to Smithereens
 ..."></textarea>
     <div class="row" style="margin-top:10px">
       <button class="primary" id="btnLoadDeck">Load deck from Scryfall</button>
       <button id="btnSample">Use sample deck</button>
+      <button id="btnEditDeck" style="display:none">Main ⇄ Side editor</button>
     </div>
     <div class="status" id="deckStatus"></div>
 
@@ -383,13 +387,11 @@
         <div class="pile cardback" id="oppLibPile" title="Opponent's library"><span class="lbl">Lib</span><span class="cnt" id="oppLibCnt">0</span></div>
         <div class="pile" id="oppGravePile" title="Opponent's graveyard"><span class="lbl">Grave</span><span class="cnt" id="oppGraveCnt">0</span></div>
         <div class="pile" id="oppExilePile" title="Opponent's exile"><span class="lbl">Exile</span><span class="cnt" id="oppExileCnt">0</span></div>
+        <div class="pile cardback" id="oppSidePile" title="Opponent's sideboard (hidden, outside the game)"><span class="lbl">Side</span><span class="cnt" id="oppSideCnt">0</span></div>
       </div>
       <div class="group lands" id="oppLands"><span class="glbl">Lands</span></div>
-      <div class="group" id="oppArts"><span class="glbl">Artifacts</span></div>
-      <div class="group" id="oppEnchs"><span class="glbl">Enchantments</span></div>
-      <div class="group" id="oppOther"><span class="glbl">PW / Other</span></div>
     </div>
-    <div class="field" id="oppCreatures"><span class="glbl" id="oppCreatLbl">Opponent — Creatures</span></div>
+    <div class="field" id="oppPerms"><span class="glbl" id="oppPermLbl">Opponent — Permanents</span></div>
 
     <div id="centerbar">
       <div id="turncol">
@@ -405,16 +407,14 @@
       </div>
     </div>
 
-    <div class="field" id="myCreatures"><span class="glbl">Your Creatures</span></div>
+    <div class="field" id="myPerms"><span class="glbl">Your Permanents</span></div>
     <div class="grouprow">
       <div class="group lands" id="myLands"><span class="glbl">Lands</span></div>
-      <div class="group" id="myArts"><span class="glbl">Artifacts</span></div>
-      <div class="group" id="myEnchs"><span class="glbl">Enchantments</span></div>
-      <div class="group" id="myOther"><span class="glbl">PW / Other</span></div>
       <div class="piles">
         <div class="pile cardback" id="myLibPile" title="Your library — click for options"><span class="lbl">Lib</span><span class="cnt" id="myLibCnt">0</span></div>
         <div class="pile" id="myGravePile" title="Your graveyard"><span class="lbl">Grave</span><span class="cnt" id="myGraveCnt">0</span></div>
         <div class="pile" id="myExilePile" title="Your exile"><span class="lbl">Exile</span><span class="cnt" id="myExileCnt">0</span></div>
+        <div class="pile cardback" id="mySidePile" title="Your sideboard — outside the game (wishes fetch from here)"><span class="lbl">Side</span><span class="cnt" id="mySideCnt">0</span></div>
       </div>
     </div>
     <div id="handRow"></div>
@@ -489,9 +489,9 @@ const MAIN1 = 3, ATT = 4, BLK = 5, DMG = 6, MAIN2 = 7, END = 8;
 const G = {
   side: null,
   myName: "You", oppName: "Opponent",
-  deck: null,
-  me:  { life: 20, poison: 0, library: [], hand: [], grave: [], exile: [], field: [] },
-  opp: { life: 20, poison: 0, handCount: 0, libCount: 0, grave: [], exile: [], field: [] },
+  deck: null, sideDeck: [],
+  me:  { life: 20, poison: 0, library: [], hand: [], grave: [], exile: [], field: [], sideboard: [] },
+  opp: { life: 20, poison: 0, handCount: 0, libCount: 0, sideCount: 0, grave: [], exile: [], field: [] },
   stackCards: {},            // my real card instances currently on the shared stack
   flow: { started: false, active: "host", first: "host", num: 1, phase: MAIN1, stack: [], lands: { host: 0, guest: 0 }, hold: { host: false, guest: false }, priority: null },
   connected: false,
@@ -504,22 +504,22 @@ const Targeting = { active: false, needed: 0, refs: [], label: "", done: null };
 /* ================= Scryfall deck import ================= */
 
 function parseDecklist(text) {
-  const out = []; let section = "main";
+  const main = [], side = [];
+  let section = main;
   for (let raw of text.split("\n")) {
     let line = raw.trim();
     if (!line || line.startsWith("//") || line.startsWith("#")) continue;
     const head = line.toLowerCase().replace(/:$/, "");
-    if (["deck", "mainboard", "main", "commander"].includes(head)) { section = "main"; continue; }
-    if (["sideboard", "maybeboard", "considering", "companion"].includes(head)) { section = "side"; continue; }
-    if (section === "side") continue;
+    if (["deck", "mainboard", "main", "commander"].includes(head)) { section = main; continue; }
+    if (["sideboard", "maybeboard", "considering", "companion", "side"].includes(head)) { section = side; continue; }
     line = line.replace(/\s*\*[A-Za-z]+\*\s*$/, "");
     line = line.replace(/\s+\([A-Za-z0-9]{2,6}\)(\s+[\w★-]+)?\s*$/, "");
     const m = line.match(/^(\d+)\s*[xX]?\s+(.+)$/);
     const count = m ? Math.min(parseInt(m[1], 10), 250) : 1;
     const name = (m ? m[2] : line).trim();
-    if (name) out.push({ count, name });
+    if (name) section.push({ count, name });
   }
-  return out;
+  return { main, side };
 }
 
 async function fetchCollection(names) {
@@ -560,31 +560,72 @@ function cardTemplate(c) {
 
 async function loadDeck() {
   const status = $("deckStatus");
-  const entries = parseDecklist($("deckText").value);
-  if (!entries.length) { status.textContent = "Nothing to import — paste a deck list first."; status.className = "status err"; return; }
-  status.textContent = "Fetching " + entries.length + " lines from Scryfall…"; status.className = "status";
+  const { main, side } = parseDecklist($("deckText").value);
+  if (!main.length && !side.length) { status.textContent = "Nothing to import — paste a deck list first."; status.className = "status err"; return; }
+  status.textContent = "Fetching " + (main.length + side.length) + " lines from Scryfall…"; status.className = "status";
   $("btnLoadDeck").disabled = true;
   try {
-    const uniq = [...new Set(entries.map(e => e.name))];
+    const uniq = [...new Set([...main, ...side].map(e => e.name))];
     const { found, notFound } = await fetchCollection(uniq);
-    const deck = [];
-    for (const e of entries) {
-      const c = found.get(e.name.toLowerCase());
-      if (!c) continue;
-      const t = cardTemplate(c);
-      for (let i = 0; i < e.count; i++) deck.push(t);
-    }
-    if (!deck.length) throw new Error("No cards found. Check spelling: " + notFound.join(", "));
-    G.deck = deck;
-    let msg = "✓ Deck loaded: " + deck.length + " cards.";
+    const expand = entries => {
+      const out = [];
+      for (const e of entries) {
+        const c = found.get(e.name.toLowerCase());
+        if (!c) continue;
+        const t = cardTemplate(c);
+        for (let i = 0; i < e.count; i++) out.push(t);
+      }
+      return out;
+    };
+    const deck = expand(main), sideDeck = expand(side);
+    if (!deck.length) throw new Error("No main-deck cards found. Check spelling: " + notFound.join(", "));
+    G.deck = deck; G.sideDeck = sideDeck;
+    let msg = "✓ Deck loaded: " + deck.length + " main + " + sideDeck.length + " sideboard.";
     if (notFound.length) msg += "\n⚠ Not found (skipped): " + notFound.join(", ");
     status.textContent = msg; status.className = "status ok";
     $("netSection").style.display = "block";
+    $("btnEditDeck").style.display = "";
   } catch (err) {
     status.textContent = "✗ " + err.message; status.className = "status err";
   } finally {
     $("btnLoadDeck").disabled = false;
   }
+}
+
+/* pre-game editor: move copies between main deck and sideboard */
+function deckEditor() {
+  const groupByName = arr => {
+    const m = new Map();
+    for (const t of arr) { const e = m.get(t.name) || { name: t.name, n: 0 }; e.n++; m.set(t.name, e); }
+    return [...m.values()].sort((a, b) => a.name.localeCompare(b.name));
+  };
+  const moveOne = (from, to, name) => {
+    const i = from.findIndex(t => t.name === name);
+    if (i >= 0) to.push(from.splice(i, 1)[0]);
+    deckEditor();
+  };
+  showModal("Main deck (" + G.deck.length + ") ⇄ Sideboard (" + (G.sideDeck || []).length + ") — click a card to move one copy", body => {
+    body.style.flexWrap = "nowrap";
+    const col = (title, arr, dest, arrow) => {
+      const c = document.createElement("div");
+      c.style.cssText = "flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;max-height:60vh;overflow-y:auto";
+      c.insertAdjacentHTML("beforeend", "<div style='font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em'>" + title + "</div>");
+      for (const e of groupByName(arr)) {
+        const d = document.createElement("div");
+        d.className = "modetxt";
+        d.textContent = e.n + " × " + e.name + "  " + arrow;
+        d.onclick = () => moveOne(arr, dest, e.name);
+        c.appendChild(d);
+      }
+      if (!arr.length) c.insertAdjacentHTML("beforeend", "<div style='color:var(--muted);font-size:12px'>Empty.</div>");
+      return c;
+    };
+    G.sideDeck = G.sideDeck || [];
+    body.append(col("Main deck", G.deck, G.sideDeck, "→"), col("Sideboard", G.sideDeck, G.deck, "←"));
+  }, [{ label: "Done", primary: true, fn: () => {
+    $("deckStatus").textContent = "✓ Deck: " + G.deck.length + " main + " + G.sideDeck.length + " sideboard.";
+    $("deckStatus").className = "status ok";
+  } }]);
 }
 
 /* ================= Card rules helpers ================= */
@@ -594,14 +635,6 @@ const isCreature = c => /\bCreature\b/.test(c.type);
 const isLandCard = c => /\bLand\b/.test(c.type);
 const isPermanentType = t => /\b(Creature|Artifact|Enchantment|Land|Planeswalker|Battle)\b/.test(t);
 const hasKw = (c, kw) => (c.keywords || []).includes(kw) || new RegExp("^" + kw + "\\b", "im").test(noRem(c.oracle));
-
-function groupOf(c) {
-  if (isCreature(c)) return "creatures";
-  if (isLandCard(c)) return "lands";
-  if (/\bArtifact\b/.test(c.type)) return "arts";
-  if (/\bEnchantment\b/.test(c.type)) return "enchs";
-  return "other";
-}
 
 function basePower(c) { const p = parseInt((c.pt || "").split("/")[0], 10); return isNaN(p) ? null : p; }
 function baseTough(c) { const t = parseInt((c.pt || "").split("/")[1], 10); return isNaN(t) ? null : t; }
@@ -740,7 +773,7 @@ function startGame() {
   $("game").classList.add("on");
   $("myNameLbl").textContent = G.myName;
   $("oppNameLbl").textContent = G.oppName;
-  $("oppCreatLbl").textContent = G.oppName + " — Creatures";
+  $("oppPermLbl").textContent = G.oppName + " — Permanents";
   sysLog("Connected. Right-click cards for full menus; the gold button drives the game. Use 🎥/🎤 in the right panel for video & voice chat.");
   renderAll(); renderAV(); pushState();
   if (G.side === "host") chooseFirstPlayer();
@@ -791,12 +824,17 @@ function setFirst(first) {
 
 /* ================= Game state ================= */
 
-function buildLibrary() {
-  G.me.library = G.deck.map(t => ({
+function makeInstance(t) {
+  return {
     id: uid(), ...t,
     tapped: false, faceDown: false, flipped: false, attacking: false, blocking: false,
     p1: 0, misc: 0, dmg: 0, sick: false, token: false, ts: 0,
-  }));
+  };
+}
+
+function buildLibrary() {
+  G.me.library = G.deck.map(makeInstance);
+  G.me.sideboard = (G.sideDeck || []).map(makeInstance);
   shuffleArr(G.me.library);
 }
 
@@ -811,7 +849,7 @@ function publicState() {
   const m = G.me;
   return {
     name: G.myName, life: m.life, poison: m.poison,
-    handCount: m.hand.length, libCount: m.library.length,
+    handCount: m.hand.length, libCount: m.library.length, sideCount: m.sideboard.length,
     grave: m.grave.map(serCard), exile: m.exile.map(serCard), field: m.field.map(serCard),
   };
 }
@@ -819,7 +857,7 @@ function publicState() {
 function applyOppState(s) {
   if (!s) return;
   G.opp.life = s.life | 0; G.opp.poison = s.poison | 0;
-  G.opp.handCount = s.handCount | 0; G.opp.libCount = s.libCount | 0;
+  G.opp.handCount = s.handCount | 0; G.opp.libCount = s.libCount | 0; G.opp.sideCount = s.sideCount | 0;
   G.opp.grave = s.grave || []; G.opp.exile = s.exile || []; G.opp.field = s.field || [];
 }
 
@@ -853,8 +891,8 @@ function toast(t) {
 
 /* ================= Zones & movement ================= */
 
-const ZONES = ["library", "hand", "grave", "exile", "field"];
-const zoneLabel = { library: "library", hand: "hand", grave: "graveyard", exile: "exile", field: "battlefield" };
+const ZONES = ["library", "hand", "grave", "exile", "field", "sideboard"];
+const zoneLabel = { library: "library", hand: "hand", grave: "graveyard", exile: "exile", field: "battlefield", sideboard: "sideboard" };
 
 function findCard(id) {
   for (const z of ZONES) {
@@ -889,6 +927,8 @@ function moveCard(id, to, opts = {}) {
     const toL = to === "library" ? (opts.bottom ? "bottom of library" : "top of library") : zoneLabel[to];
     if (loc.zone === "hand" && to === "grave") myLog("discards " + what);
     else if (to === "grave" && loc.zone === "field") myLog("puts " + what + " into the graveyard");
+    else if (to === "sideboard") myLog("sets " + what + " aside in the sideboard (outside the game)");
+    else if (loc.zone === "sideboard") myLog("brings " + what + " in from outside the game to " + toL);
     else myLog("moves " + what + " from " + zoneLabel[loc.zone] + " to " + toL);
   }
   pushState();
@@ -1358,20 +1398,16 @@ function cardDiv(c, mine, zone, small) {
   return d;
 }
 
-const GROUPMAP = { creatures: "Creatures", lands: "Lands", arts: "Arts", enchs: "Enchs", other: "Other" };
-
 function renderSide(prefix, field, mine) {
-  const groups = { creatures: [], lands: [], arts: [], enchs: [], other: [] };
-  for (const c of field) groups[groupOf(c)].push(c);
-  const ids = {
-    creatures: prefix + "Creatures", lands: prefix + "Lands",
-    arts: prefix + "Arts", enchs: prefix + "Enchs", other: prefix + "Other",
-  };
-  for (const g of Object.keys(ids)) {
-    const el = $(ids[g]);
-    el.querySelectorAll(".card").forEach(n => n.remove());
-    for (const c of groups[g]) el.appendChild(cardDiv(c, mine, "field", g !== "creatures"));
-  }
+  // two battlefield zones: lands below, every other permanent above
+  const lands = [], perms = [];
+  for (const c of field) (isLandCard(c) && !isCreature(c) ? lands : perms).push(c);
+  const pe = $(prefix + "Perms");
+  pe.querySelectorAll(".card").forEach(n => n.remove());
+  for (const c of perms) pe.appendChild(cardDiv(c, mine, "field"));
+  const le = $(prefix + "Lands");
+  le.querySelectorAll(".card").forEach(n => n.remove());
+  for (const c of lands) le.appendChild(cardDiv(c, mine, "field", true));
 }
 
 function pileTop(el, arr) {
@@ -1394,6 +1430,8 @@ function renderAll() {
   pileTop($("myExilePile"), G.me.exile);
   $("myLife").textContent = G.me.life;
   $("myPoison").textContent = G.me.poison;
+  $("mySideCnt").textContent = G.me.sideboard.length;
+  $("oppSideCnt").textContent = G.opp.sideCount;
   $("oppLibCnt").textContent = G.opp.libCount;
   $("oppGraveCnt").textContent = G.opp.grave.length;
   $("oppExileCnt").textContent = G.opp.exile.length;
@@ -1565,6 +1603,7 @@ function openCardMenu(c, zone, mine, x, y) {
       { label: "Exile", fn: () => moveCard(c.id, "exile") },
       { label: "Top of library", fn: () => moveCard(c.id, "library") },
       { label: "Bottom of library", fn: () => moveCard(c.id, "library", { bottom: true }) },
+      { label: "To sideboard (outside the game)", fn: () => moveCard(c.id, "sideboard") },
     );
   } else if (zone === "field") {
     items.push(
@@ -1721,6 +1760,22 @@ function viewMyZone(zone, title) {
   });
 }
 
+/* sideboard = "outside the game": wishes & learn fetch from here,
+   and between games you swap cards with the library */
+function viewSideboard() {
+  showModal("Sideboard — outside the game (" + G.me.sideboard.length + ")", body => {
+    for (const c of [...G.me.sideboard]) {
+      body.appendChild(mcardEl(c, [
+        { label: "Hand", fn: () => { myLog("brings <b>" + esc(c.name) + "</b> in from outside the game to hand"); moveCard(c.id, "hand", { silent: true }); } },
+        { label: "Field", fn: () => { myLog("puts <b>" + esc(c.name) + "</b> from outside the game onto the battlefield"); moveCard(c.id, "field", { silent: true }); } },
+        { label: "Exile", fn: () => moveCard(c.id, "exile") },
+        { label: "Library", fn: () => { moveCard(c.id, "library"); toast("Put on top — shuffle if it should be randomized."); } },
+      ]));
+    }
+    if (!G.me.sideboard.length) body.textContent = "Empty.";
+  });
+}
+
 function viewOppZone(zone, title) {
   showModal(G.oppName + "'s " + title + " (" + G.opp[zone].length + ")", body => {
     for (const c of [...G.opp[zone]].reverse()) body.appendChild(mcardEl(c, []));
@@ -1737,6 +1792,7 @@ function searchLibrary() {
         { label: "Field", fn: () => moveCard(c.id, "field") },
         { label: "Grave", fn: () => moveCard(c.id, "grave") },
         { label: "Top", fn: () => moveCard(c.id, "library") },
+        { label: "Side", fn: () => moveCard(c.id, "sideboard") },
       ]));
     }
     if (!sorted.length) body.textContent = "Library is empty.";
@@ -2071,8 +2127,11 @@ $("btnLoadDeck").addEventListener("click", loadDeck);
 $("btnSample").addEventListener("click", () => {
   $("deckText").value = ["4 Lightning Bolt", "4 Monastery Swiftspear", "4 Lava Spike", "4 Rift Bolt", "4 Skewer the Critics",
     "4 Goblin Guide", "4 Eidolon of the Great Revel", "4 Boros Charm", "4 Lightning Helix", "4 Searing Blaze",
-    "17 Mountain", "3 Sacred Foundry"].join("\n");
+    "17 Mountain", "3 Sacred Foundry", "",
+    "Sideboard", "3 Smash to Smithereens", "3 Roiling Vortex", "3 Path to Exile",
+    "2 Deflecting Palm", "2 Rest in Peace", "2 Wear // Tear"].join("\n");
 });
+$("btnEditDeck").addEventListener("click", deckEditor);
 $("btnHost").addEventListener("click", () => { confirmName(); hostGame(); });
 $("btnJoin").addEventListener("click", () => { confirmName(); joinGame(); });
 function confirmName() { G.myName = ($("playerName").value.trim() || "Player-" + gameCode().slice(0, 3)).slice(0, 20); }
@@ -2108,14 +2167,17 @@ $("myLibPile").addEventListener("click", e => libraryMenu(e.clientX, e.clientY))
 $("myLibPile").addEventListener("contextmenu", e => { e.preventDefault(); libraryMenu(e.clientX, e.clientY); });
 $("myGravePile").addEventListener("click", () => viewMyZone("grave", "Your graveyard"));
 $("myExilePile").addEventListener("click", () => viewMyZone("exile", "Your exile"));
+$("mySidePile").addEventListener("click", viewSideboard);
 $("oppGravePile").addEventListener("click", () => viewOppZone("grave", "graveyard"));
 $("oppExilePile").addEventListener("click", () => viewOppZone("exile", "exile"));
+$("oppSidePile").addEventListener("click", () => toast(G.oppName + "'s sideboard is hidden — it's outside the game (" + G.opp.sideCount + " cards)."));
 
-for (const id of ["myCreatures", "myLands", "myArts", "myEnchs", "myOther"]) wireDrop(id, { zone: "field" });
+for (const id of ["myPerms", "myLands"]) wireDrop(id, { zone: "field" });
 wireDrop("handRow", { zone: "hand" });
 wireDrop("myGravePile", { zone: "grave" });
 wireDrop("myExilePile", { zone: "exile" });
 wireDrop("myLibPile", { zone: "library" });
+wireDrop("mySidePile", { zone: "sideboard" });
 
 $("chatForm").addEventListener("submit", e => {
   e.preventDefault();
@@ -2131,7 +2193,8 @@ $("btnHelp").addEventListener("click", () => showModal("How to play", body => {
   <b>Start.</b> Both players load a deck and connect with the game code. The host chooses: pick the starting player together, or coin flip — the flip winner chooses play or draw. Opening hands of 7 are drawn automatically (mulligan from the side panel).<br/><br/>
   <b>The gold button</b> drives the game like MTG Arena's prompt: it advances your phases, confirms attackers/blockers, and resolves the stack. Untap and the draw step happen automatically at the start of your turn.<br/><br/>
   <b>Casting.</b> Click a card in hand to cast it. Timing is enforced (sorcery-speed only in your main phases with an empty stack; instants &amp; flash anytime). Modal spells ask you to choose modes; spells that say “target” make you click targets (cards, players, or stack items). The spell goes on the <b>stack</b>; your opponent gets priority to respond (APNAP), and when they click <i>Resolve</i> it resolves — permanents enter the battlefield, instants/sorceries go to the graveyard and you apply their effects. ETB triggered abilities are detected and you're prompted to put them on the stack — ordering is asked when there are several.<br/><br/>
-  <b>Lands.</b> One land per turn, on your turn, in a main phase. If an ability allows more, right-click → extra land.<br/><br/>
+  <b>Lands.</b> One land per turn, on your turn, in a main phase. If an ability allows more, right-click → extra land. The battlefield has two zones: lands on the row nearest you, every other permanent on the row above.<br/><br/>
+  <b>Sideboard &amp; “outside the game”.</b> Cards under a “Sideboard” line in your deck list go to the Side pile (hidden from your opponent — only the count shows). Before connecting, the <i>Main ⇄ Side editor</i> swaps copies between main deck and sideboard. In game, click the Side pile when an effect lets you find a card from outside the game (wishes, Learn…) — bring it to hand, battlefield, or exile. Exiled cards that an effect lets you play are in your Exile pile viewer, and the library search modal can also send cards to the sideboard when sideboarding between games.<br/><br/>
   <b>Combat.</b> In the Attackers step click creatures to attack, or use <i>Attack all</i> — creatures that just arrived (summoning sickness, no haste), tapped ones and defenders are excluded; attackers tap unless they have vigilance. The defender then declares blockers and confirms. Mark damage from card menus — lethal damage destroys creatures automatically (indestructible respected), and all damage wears off at end of turn.<br/><br/>
   <b>Stops.</b> Toggle <i>End-step stop</i> to get priority at your opponent's end step before they pass the turn. You can cast instants at any time.<br/><br/>
   <b>Video &amp; voice.</b> Use 🎥 and 🎤 in the right panel to share your camera and talk over the same peer-to-peer link. The ⚙ button picks your camera, microphone and speaker, and lets you choose an 8-bit avatar that's shown whenever your camera is off.<br/><br/>
