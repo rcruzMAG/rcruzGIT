@@ -1,0 +1,1196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Arena Tabletop — 2-Player MTG Board</title>
+<style>
+  :root {
+    --bg: #0b0d12;
+    --panel: #151821;
+    --panel2: #1c2030;
+    --line: #2b3044;
+    --txt: #e8e9ee;
+    --muted: #8e93a6;
+    --gold: #d4af5a;
+    --red: #e4574f;
+    --blue: #4f8fe4;
+    --green: #4fb46a;
+    --radius: 10px;
+    --cardW: 86px;
+    --cardH: 120px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body {
+    background: radial-gradient(1100px 600px at 50% -10%, #161a26 0%, var(--bg) 60%);
+    color: var(--txt);
+    font-family: "Segoe UI", -apple-system, Roboto, Helvetica, Arial, sans-serif;
+    font-size: 14px;
+    overflow: hidden;
+  }
+  button {
+    background: var(--panel2); color: var(--txt); border: 1px solid var(--line);
+    border-radius: 7px; padding: 7px 12px; cursor: pointer; font-size: 13px;
+    transition: background .15s, border-color .15s, transform .1s;
+  }
+  button:hover { background: #262b40; border-color: #3d4360; }
+  button:active { transform: scale(.97); }
+  button.primary { background: var(--gold); color: #1a1405; border-color: var(--gold); font-weight: 600; }
+  button.primary:hover { background: #e3c376; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  input, textarea {
+    background: #0e1019; color: var(--txt); border: 1px solid var(--line);
+    border-radius: 7px; padding: 8px 10px; font-size: 13px; font-family: inherit;
+  }
+  input:focus, textarea:focus { outline: none; border-color: var(--gold); }
+
+  /* ---------- Setup screen ---------- */
+  #setup {
+    height: 100vh; display: flex; align-items: center; justify-content: center; overflow: auto;
+  }
+  .setup-box {
+    width: 620px; max-width: 94vw; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 14px; padding: 26px 30px; box-shadow: 0 18px 60px rgba(0,0,0,.5);
+  }
+  .setup-box h1 { margin: 0 0 2px; font-size: 22px; letter-spacing: .02em; }
+  .setup-box h1 span { color: var(--gold); }
+  .setup-box .sub { color: var(--muted); margin: 0 0 18px; font-size: 13px; }
+  .setup-box label { display: block; margin: 14px 0 5px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+  .setup-box textarea { width: 100%; height: 170px; resize: vertical; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+  .setup-box input[type=text] { width: 100%; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .status { font-size: 12.5px; color: var(--muted); margin-top: 8px; min-height: 18px; white-space: pre-wrap; }
+  .status.ok { color: var(--green); }
+  .status.err { color: var(--red); }
+  #netSection { margin-top: 20px; border-top: 1px solid var(--line); padding-top: 16px; display: none; }
+  .codebox {
+    font-family: ui-monospace, Consolas, monospace; font-size: 20px; letter-spacing: .2em;
+    color: var(--gold); background: #0e1019; border: 1px dashed var(--gold);
+    border-radius: 8px; padding: 8px 16px; display: none; user-select: all;
+  }
+
+  /* ---------- Game layout ---------- */
+  #game { display: none; height: 100vh; }
+  #game.on { display: grid; grid-template-columns: 215px 1fr 265px; }
+  .sidebar { background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; padding: 10px; gap: 10px; overflow-y: auto; }
+  .sidebar.right { border-right: none; border-left: 1px solid var(--line); }
+  #preview {
+    width: 195px; height: 272px; border-radius: 10px; background-size: cover; background-position: center;
+    background-color: #0e1019; border: 1px solid var(--line); flex-shrink: 0;
+  }
+  .panel { background: var(--panel2); border: 1px solid var(--line); border-radius: var(--radius); padding: 9px; }
+  .panel h3 { margin: 0 0 7px; font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
+  .life-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px; }
+  .life-row .val { font-size: 21px; font-weight: 700; min-width: 36px; text-align: center; }
+  .life-row .nm { font-size: 12px; color: var(--muted); max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mini { padding: 3px 9px; font-size: 14px; line-height: 1; }
+  .btncol { display: flex; flex-direction: column; gap: 6px; }
+  .btnrow { display: flex; gap: 6px; flex-wrap: wrap; }
+  .btnrow button { flex: 1; padding: 6px 4px; font-size: 12px; }
+
+  /* board */
+  #board { display: flex; flex-direction: column; height: 100vh; padding: 6px 10px; gap: 4px; min-width: 0; }
+  .zone-row { display: flex; gap: 6px; align-items: center; flex-wrap: nowrap; overflow-x: auto; min-height: 0; }
+  .field {
+    flex: 1; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; align-content: center;
+    border: 1px dashed transparent; border-radius: 10px; padding: 4px 8px; min-height: calc(var(--cardH) + 14px);
+    overflow-y: auto; transition: border-color .15s, background .15s;
+  }
+  .field.droptarget, .pile.droptarget, #handRow.droptarget { border-color: var(--gold); background: rgba(212,175,90,.06); }
+  #oppFront, #myFront { flex: 1.2; }
+  .rowwrap { display: flex; gap: 8px; flex: 1; min-height: 0; align-items: stretch; }
+  .piles { display: flex; gap: 8px; align-items: center; padding: 4px; }
+  .pile {
+    width: calc(var(--cardW) * .82); height: calc(var(--cardH) * .82); border-radius: 7px; position: relative;
+    border: 1px solid var(--line); background: #0e1019 center/cover; cursor: pointer; flex-shrink: 0;
+  }
+  .pile .cnt {
+    position: absolute; bottom: -7px; left: 50%; transform: translateX(-50%);
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    font-size: 11px; padding: 1px 8px; font-weight: 600;
+  }
+  .pile .lbl { position: absolute; top: -16px; left: 0; right: 0; text-align: center; font-size: 9.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; }
+  .cardback { background: repeating-linear-gradient(135deg, #2a2347 0 10px, #1d1834 10px 20px); border: 2px solid #4a3f7a !important; }
+  .cardback::after { content: "✦"; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #6b5ca8; font-size: 22px; }
+
+  /* stack strip */
+  #stackRow {
+    min-height: 86px; border: 1px solid var(--line); border-radius: 10px; background: rgba(20,23,35,.7);
+    display: flex; align-items: center; gap: 8px; padding: 5px 10px; overflow-x: auto;
+  }
+  #stackRow .zlabel { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .12em; writing-mode: vertical-rl; transform: rotate(180deg); flex-shrink: 0; }
+  #turnbar {
+    display: flex; align-items: center; gap: 10px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 5px 12px; flex-shrink: 0;
+  }
+  #turnbar .phase { font-weight: 700; font-size: 13.5px; }
+  #turnbar .phase.mine { color: var(--gold); }
+  #turnbar .phase.theirs { color: var(--blue); }
+  #turnbar .tnum { color: var(--muted); font-size: 12px; }
+  #phaseTrack { display: flex; gap: 3px; flex: 1; justify-content: center; flex-wrap: wrap; }
+  #phaseTrack .ph { font-size: 10px; padding: 2px 7px; border-radius: 9px; color: var(--muted); border: 1px solid transparent; }
+  #phaseTrack .ph.cur { color: #1a1405; background: var(--gold); font-weight: 700; }
+
+  /* cards */
+  .card {
+    width: var(--cardW); height: var(--cardH); border-radius: 6px; background-color: #0e1019;
+    background-size: cover; background-position: center; position: relative; cursor: pointer; flex-shrink: 0;
+    border: 1.5px solid #3a3f55; box-shadow: 0 3px 10px rgba(0,0,0,.45);
+    transition: transform .18s ease, box-shadow .18s, border-color .18s;
+  }
+  .card:hover { transform: translateY(-4px) scale(1.04); z-index: 5; box-shadow: 0 8px 22px rgba(0,0,0,.6); }
+  .card.tapped { transform: rotate(90deg) scale(.96); margin: 0 16px; }
+  .card.tapped:hover { transform: rotate(90deg) scale(1.0) translateX(-3px); }
+  .card.attacking { border-color: var(--red); box-shadow: 0 0 14px rgba(228,87,79,.65); animation: pulseRed 1.4s infinite; }
+  .card.blocking { border-color: var(--blue); box-shadow: 0 0 14px rgba(79,143,228,.65); }
+  .card.facedown { background-image: none !important; }
+  .card.facedown::after { content: "✦"; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #6b5ca8; font-size: 26px; background: repeating-linear-gradient(135deg, #2a2347 0 10px, #1d1834 10px 20px); border-radius: 5px; }
+  .card.enter { animation: pop .28s ease; }
+  .card.small { width: calc(var(--cardW) * .72); height: calc(var(--cardH) * .72); }
+  .card .badge {
+    position: absolute; bottom: 3px; left: 3px; background: var(--green); color: #fff; z-index: 2;
+    border-radius: 9px; font-size: 10.5px; font-weight: 700; padding: 1px 5px; box-shadow: 0 1px 4px rgba(0,0,0,.5);
+  }
+  .card .badge.misc { left: auto; right: 3px; background: #5a5f78; }
+  .card .badge.tok { bottom: auto; top: 3px; left: 3px; background: #8a6ad4; font-size: 9px; }
+  @keyframes pop { from { transform: scale(.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  @keyframes pulseRed { 0%,100% { box-shadow: 0 0 8px rgba(228,87,79,.4); } 50% { box-shadow: 0 0 18px rgba(228,87,79,.85); } }
+
+  #handRow {
+    min-height: calc(var(--cardH) + 16px); display: flex; gap: 6px; align-items: center;
+    background: rgba(20,23,35,.6); border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; overflow-x: auto;
+  }
+  #oppHandRow { min-height: 64px; display: flex; gap: 4px; align-items: center; padding: 2px 10px; overflow-x: auto; }
+  .oppback { width: 42px; height: 58px; border-radius: 4px; flex-shrink: 0; position: relative;
+    background: repeating-linear-gradient(135deg, #2a2347 0 7px, #1d1834 7px 14px); border: 1.5px solid #4a3f7a; }
+  .pname { font-size: 11px; color: var(--muted); padding: 0 4px; flex-shrink: 0; }
+  .pname b { color: var(--txt); }
+
+  /* log */
+  #log { flex: 1; overflow-y: auto; font-size: 12.3px; display: flex; flex-direction: column; gap: 4px; padding: 4px 2px; min-height: 120px; }
+  #log .e { padding: 4px 8px; border-radius: 7px; background: rgba(255,255,255,.03); border-left: 2px solid var(--line); line-height: 1.35; }
+  #log .e.me { border-left-color: var(--gold); }
+  #log .e.opp { border-left-color: var(--blue); }
+  #log .e.sys { border-left-color: var(--green); color: var(--muted); }
+  #log .e .who { font-weight: 700; }
+  #chatForm { display: flex; gap: 6px; }
+  #chatInput { flex: 1; min-width: 0; }
+
+  /* context menu */
+  #menu {
+    position: fixed; z-index: 60; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 9px; min-width: 180px; box-shadow: 0 14px 40px rgba(0,0,0,.6); display: none; overflow: hidden; padding: 4px;
+  }
+  #menu .mi { padding: 7px 12px; cursor: pointer; border-radius: 6px; font-size: 13px; }
+  #menu .mi:hover { background: var(--gold); color: #1a1405; }
+  #menu .sep { height: 1px; background: var(--line); margin: 4px 6px; }
+
+  /* modal */
+  #modalWrap { position: fixed; inset: 0; z-index: 50; background: rgba(5,6,10,.72); display: none; align-items: center; justify-content: center; }
+  #modalWrap.on { display: flex; }
+  #modal {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px;
+    width: 740px; max-width: 94vw; max-height: 86vh; display: flex; flex-direction: column; gap: 12px;
+  }
+  #modal h2 { margin: 0; font-size: 16px; }
+  #modalBody { overflow-y: auto; display: flex; flex-wrap: wrap; gap: 10px; align-content: flex-start; }
+  #modalBtns { display: flex; gap: 8px; justify-content: flex-end; }
+  .mcard { width: 110px; display: flex; flex-direction: column; gap: 4px; }
+  .mcard .img { width: 110px; height: 154px; border-radius: 7px; background: #0e1019 center/cover; border: 1px solid var(--line); }
+  .mcard .acts { display: flex; flex-wrap: wrap; gap: 3px; }
+  .mcard .acts button { font-size: 10px; padding: 3px 6px; flex: 1; }
+  .scryrow { display: flex; align-items: center; gap: 10px; width: 100%; background: var(--panel2); border-radius: 8px; padding: 6px 10px; }
+  .scryrow .img { width: 46px; height: 64px; border-radius: 4px; background: #0e1019 center/cover; flex-shrink: 0; }
+  .scryrow .nm { flex: 1; font-size: 13px; }
+  .scryrow button.sel { background: var(--gold); color: #1a1405; }
+
+  #toast {
+    position: fixed; top: 14px; left: 50%; transform: translateX(-50%) translateY(-80px); z-index: 70;
+    background: var(--panel); border: 1px solid var(--gold); color: var(--txt); padding: 9px 20px;
+    border-radius: 9px; font-size: 13px; box-shadow: 0 10px 30px rgba(0,0,0,.5); transition: transform .25s ease; pointer-events: none;
+  }
+  #toast.on { transform: translateX(-50%) translateY(0); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); display: inline-block; margin-right: 5px; }
+  .dot.ok { background: var(--green); }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: #2b3044; border-radius: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+</style>
+</head>
+<body>
+
+<!-- ============ SETUP ============ -->
+<div id="setup">
+  <div class="setup-box">
+    <h1>Arena <span>Tabletop</span></h1>
+    <p class="sub">A 2-player Magic-style virtual table. Import your deck list, connect peer-to-peer, and play from any two browsers. Card data &amp; images courtesy of <a href="https://scryfall.com" target="_blank" style="color:var(--gold)">Scryfall</a>. Rules are enforced by you — the table gives you all the tools.</p>
+
+    <label>Your name</label>
+    <input type="text" id="playerName" maxlength="20" placeholder="Planeswalker" />
+
+    <label>Deck list (one card per line — e.g. “4 Lightning Bolt”. MTGA / MTGO / plain formats supported; sideboard is ignored)</label>
+    <textarea id="deckText" placeholder="4 Lightning Bolt
+4 Monastery Swiftspear
+2 Light Up the Stage (RNA) 107
+20 Mountain
+..."></textarea>
+    <div class="row" style="margin-top:10px">
+      <button class="primary" id="btnLoadDeck">Load deck from Scryfall</button>
+      <button id="btnSample">Use sample deck</button>
+    </div>
+    <div class="status" id="deckStatus"></div>
+
+    <div id="netSection">
+      <label>Connect with your opponent</label>
+      <div class="row">
+        <button class="primary" id="btnHost">Create game</button>
+        <span class="codebox" id="hostCode"></span>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <input type="text" id="joinCode" placeholder="Enter game code…" style="width:220px;text-transform:uppercase" />
+        <button id="btnJoin">Join game</button>
+      </div>
+      <div class="status" id="netStatus">Create a game and send the code to your opponent, or paste their code and join.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ GAME ============ -->
+<div id="game">
+  <!-- left sidebar -->
+  <div class="sidebar">
+    <div id="preview"></div>
+    <div class="panel">
+      <h3>Life</h3>
+      <div class="life-row">
+        <span class="nm" id="oppNameLbl">Opponent</span>
+        <span class="val" id="oppLife" style="color:var(--blue)">20</span>
+        <span style="font-size:11px;color:var(--muted)">☠<span id="oppPoison">0</span></span>
+      </div>
+      <div class="life-row">
+        <span class="nm" id="myNameLbl">You</span>
+        <span class="val" id="myLife" style="color:var(--gold)">20</span>
+        <span>
+          <button class="mini" id="lifeMinus">−</button>
+          <button class="mini" id="lifePlus">+</button>
+        </span>
+      </div>
+      <div class="row" style="justify-content:flex-end;gap:4px">
+        <span style="font-size:11px;color:var(--muted)">poison ☠ <span id="myPoison">0</span></span>
+        <button class="mini" id="poisonMinus">−</button>
+        <button class="mini" id="poisonPlus">+</button>
+      </div>
+    </div>
+    <div class="panel btncol">
+      <h3>Actions</h3>
+      <div class="btnrow">
+        <button id="btnDraw" class="primary">Draw</button>
+        <button id="btnUntapAll">Untap all</button>
+      </div>
+      <div class="btnrow">
+        <button id="btnOpening">Opening hand</button>
+        <button id="btnMulligan">Mulligan</button>
+      </div>
+      <div class="btnrow">
+        <button id="btnShuffle">Shuffle</button>
+        <button id="btnScry">Scry…</button>
+      </div>
+      <div class="btnrow">
+        <button id="btnSearch">Search library</button>
+        <button id="btnToken">Token…</button>
+      </div>
+    </div>
+    <div class="panel btncol">
+      <h3>Randomness</h3>
+      <div class="btnrow">
+        <button id="btnCoin">Coin</button>
+        <button id="btnD6">d6</button>
+        <button id="btnD20">d20</button>
+      </div>
+    </div>
+    <div class="panel" style="font-size:11.5px;color:var(--muted)">
+      <span class="dot" id="connDot"></span><span id="connLbl">connecting…</span><br/>
+      <button id="btnHelp" style="margin-top:7px;width:100%">How to play</button>
+    </div>
+  </div>
+
+  <!-- board -->
+  <div id="board">
+    <div id="oppHandRow"><span class="pname"><b id="oppNameLbl2">Opponent</b>'s hand</span></div>
+    <div class="rowwrap">
+      <div class="field" id="oppBack"></div>
+      <div class="piles">
+        <div class="pile cardback" id="oppLibPile" title="Opponent's library"><span class="lbl">Library</span><span class="cnt" id="oppLibCnt">0</span></div>
+        <div class="pile" id="oppGravePile" title="Opponent's graveyard"><span class="lbl">Grave</span><span class="cnt" id="oppGraveCnt">0</span></div>
+        <div class="pile" id="oppExilePile" title="Opponent's exile"><span class="lbl">Exile</span><span class="cnt" id="oppExileCnt">0</span></div>
+      </div>
+    </div>
+    <div class="field" id="oppFront"></div>
+
+    <div id="turnbar">
+      <span class="phase" id="turnWho">—</span>
+      <span class="tnum" id="turnNum"></span>
+      <div id="phaseTrack"></div>
+      <button id="btnNextPhase">Next phase ▸</button>
+      <button id="btnEndTurn" class="primary">End turn</button>
+    </div>
+
+    <div id="stackRow"><span class="zlabel">Stack</span></div>
+
+    <div class="field" id="myFront"></div>
+    <div class="rowwrap">
+      <div class="field" id="myBack"></div>
+      <div class="piles">
+        <div class="pile cardback" id="myLibPile" title="Your library — click for options"><span class="lbl">Library</span><span class="cnt" id="myLibCnt">0</span></div>
+        <div class="pile" id="myGravePile" title="Your graveyard"><span class="lbl">Grave</span><span class="cnt" id="myGraveCnt">0</span></div>
+        <div class="pile" id="myExilePile" title="Your exile"><span class="lbl">Exile</span><span class="cnt" id="myExileCnt">0</span></div>
+      </div>
+    </div>
+    <div id="handRow"></div>
+  </div>
+
+  <!-- right sidebar -->
+  <div class="sidebar right">
+    <div class="panel" style="flex:1;display:flex;flex-direction:column;min-height:0">
+      <h3>Game log &amp; chat</h3>
+      <div id="log"></div>
+      <form id="chatForm" style="margin-top:8px">
+        <input type="text" id="chatInput" placeholder="Say something…" maxlength="300"/>
+        <button type="submit" class="mini">➤</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- context menu / modal / toast -->
+<div id="menu"></div>
+<div id="modalWrap"><div id="modal"><h2 id="modalTitle"></h2><div id="modalBody"></div><div id="modalBtns"></div></div></div>
+<div id="toast"></div>
+
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script>
+"use strict";
+/* =====================================================================
+   Arena Tabletop — single-file 2-player MTG virtual table
+   - Card data: Scryfall API (https://scryfall.com/docs/api)
+   - Networking: PeerJS (WebRTC data channel, free public broker)
+   Each client is authoritative over its OWN cards. Hands and library
+   order never leave your machine — only public info is synced.
+===================================================================== */
+
+const $ = id => document.getElementById(id);
+let _uidc = 0;
+const uid = () => Date.now().toString(36) + (_uidc++).toString(36) + Math.random().toString(36).slice(2, 6);
+const shuffleArr = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+const PHASES = ["Untap", "Upkeep", "Draw", "Main 1", "Attackers", "Blockers", "Damage", "Main 2", "End"];
+
+const G = {
+  side: null,                // 'host' | 'guest'
+  myName: "You", oppName: "Opponent",
+  deck: null,                // array of card templates
+  me:  { life: 20, poison: 0, library: [], hand: [], grave: [], exile: [], front: [], back: [], stack: [] },
+  opp: { life: 20, poison: 0, handCount: 0, libCount: 0, grave: [], exile: [], front: [], back: [], stack: [] },
+  turn: { active: "host", num: 1, phase: 3 },
+  connected: false,
+};
+
+/* ================= Scryfall deck import ================= */
+
+function parseDecklist(text) {
+  const out = []; let section = "main";
+  for (let raw of text.split("\n")) {
+    let line = raw.trim();
+    if (!line || line.startsWith("//") || line.startsWith("#")) continue;
+    const head = line.toLowerCase().replace(/:$/, "");
+    if (["deck", "mainboard", "main", "commander", "companion"].includes(head)) { section = head === "companion" ? "side" : "main"; continue; }
+    if (["sideboard", "maybeboard", "considering"].includes(head)) { section = "side"; continue; }
+    if (section === "side") continue;
+    line = line.replace(/\s*\*[A-Za-z]+\*\s*$/, "");                       // foil markers
+    line = line.replace(/\s+\([A-Za-z0-9]{2,6}\)(\s+[\w★-]+)?\s*$/, "");   // (SET) 123
+    const m = line.match(/^(\d+)\s*[xX]?\s+(.+)$/);
+    const count = m ? Math.min(parseInt(m[1], 10), 250) : 1;
+    const name = (m ? m[2] : line).trim();
+    if (name) out.push({ count, name });
+  }
+  return out;
+}
+
+async function fetchCollection(names) {
+  const found = new Map(), notFound = [];
+  for (let i = 0; i < names.length; i += 75) {
+    const chunk = names.slice(i, i + 75);
+    const res = await fetch("https://api.scryfall.com/cards/collection", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ identifiers: chunk.map(n => ({ name: n })) }),
+    });
+    if (!res.ok) throw new Error("Scryfall error " + res.status);
+    const data = await res.json();
+    for (const c of data.data || []) {
+      found.set(c.name.toLowerCase(), c);
+      for (const f of c.card_faces || []) found.set(f.name.toLowerCase(), c);
+    }
+    for (const nf of data.not_found || []) notFound.push(nf.name);
+    if (i + 75 < names.length) await new Promise(r => setTimeout(r, 120));
+  }
+  return { found, notFound };
+}
+
+function cardTemplate(c) {
+  const face = (c.card_faces && c.card_faces[0]) || c;
+  const img = (c.image_uris || face.image_uris || {}).normal || "";
+  const backFace = c.card_faces && c.card_faces[1];
+  return {
+    name: c.name,
+    img,
+    back: backFace && backFace.image_uris ? backFace.image_uris.normal : null,
+    type: c.type_line || face.type_line || "",
+    pt: face.power != null ? face.power + "/" + face.toughness : "",
+  };
+}
+
+async function loadDeck() {
+  const txt = $("deckText").value;
+  const status = $("deckStatus");
+  const entries = parseDecklist(txt);
+  if (!entries.length) { status.textContent = "Nothing to import — paste a deck list first."; status.className = "status err"; return; }
+  status.textContent = "Fetching " + entries.length + " lines from Scryfall…"; status.className = "status";
+  $("btnLoadDeck").disabled = true;
+  try {
+    const uniq = [...new Set(entries.map(e => e.name))];
+    const { found, notFound } = await fetchCollection(uniq);
+    const deck = [];
+    for (const e of entries) {
+      const c = found.get(e.name.toLowerCase());
+      if (!c) continue;
+      const t = cardTemplate(c);
+      for (let i = 0; i < e.count; i++) deck.push(t);
+    }
+    if (!deck.length) throw new Error("No cards found. Check spelling: " + notFound.join(", "));
+    G.deck = deck;
+    let msg = "✓ Deck loaded: " + deck.length + " cards.";
+    if (notFound.length) msg += "\n⚠ Not found (skipped): " + notFound.join(", ");
+    status.textContent = msg; status.className = "status ok";
+    $("netSection").style.display = "block";
+  } catch (err) {
+    status.textContent = "✗ " + err.message; status.className = "status err";
+  } finally {
+    $("btnLoadDeck").disabled = false;
+  }
+}
+
+/* ================= Networking (PeerJS) ================= */
+
+let peer = null, conn = null, saidHello = false;
+
+function gameCode() {
+  const A = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; let s = "";
+  for (let i = 0; i < 5; i++) s += A[Math.floor(Math.random() * A.length)];
+  return s;
+}
+const peerId = code => "arena-tabletop-" + code.toLowerCase();
+
+function hostGame() {
+  G.side = "host";
+  const code = gameCode();
+  $("netStatus").textContent = "Creating game…";
+  peer = new Peer(peerId(code), { debug: 1 });
+  peer.on("open", () => {
+    $("hostCode").textContent = code;
+    $("hostCode").style.display = "inline-block";
+    $("netStatus").textContent = "Share this code with your opponent. Waiting for them to join…";
+  });
+  peer.on("connection", c => { conn = c; wireConn(); });
+  peer.on("error", e => netError(e));
+}
+
+function joinGame() {
+  const code = $("joinCode").value.trim().toUpperCase();
+  if (code.length < 4) { $("netStatus").textContent = "Enter the 5-letter game code."; return; }
+  G.side = "guest";
+  $("netStatus").textContent = "Connecting…";
+  peer = new Peer({ debug: 1 });
+  peer.on("open", () => {
+    conn = peer.connect(peerId(code), { reliable: true });
+    wireConn();
+  });
+  peer.on("error", e => netError(e));
+}
+
+function netError(e) {
+  const msgs = {
+    "unavailable-id": "That game code is already in use — click Create game again.",
+    "peer-unavailable": "No game found with that code. Check it and try again.",
+    "network": "Cannot reach the signalling server — check your connection.",
+  };
+  $("netStatus").textContent = "✗ " + (msgs[e.type] || ("Connection error: " + e.type));
+  $("netStatus").className = "status err";
+  if (G.connected) { setConn(false); toast("Connection error: " + e.type); }
+}
+
+function wireConn() {
+  conn.on("open", () => {
+    send("hello", { name: G.myName });
+  });
+  conn.on("data", handleMsg);
+  conn.on("close", () => { setConn(false); toast(G.oppName + " disconnected"); sysLog(G.oppName + " disconnected."); });
+}
+
+function send(t, p) { if (conn && conn.open) conn.send({ t, p }); }
+
+function setConn(on) {
+  G.connected = on;
+  $("connDot").className = "dot" + (on ? " ok" : "");
+  $("connLbl").textContent = on ? "connected to " + G.oppName : "disconnected";
+}
+
+function handleMsg(m) {
+  if (!m || typeof m !== "object") return;
+  switch (m.t) {
+    case "hello":
+      G.oppName = String(m.p.name || "Opponent").slice(0, 20);
+      if (!saidHello) { saidHello = true; send("hello", { name: G.myName }); }
+      if (!G.connected) startGame();
+      send("state", publicState());
+      break;
+    case "state": applyOppState(m.p); renderAll(); break;
+    case "turn":
+      G.turn = { active: m.p.active, num: m.p.num | 0, phase: m.p.phase | 0 };
+      onTurnChanged(false);
+      renderAll();
+      break;
+    case "log": addLog(m.p.text, "opp"); break;
+    case "chat": addLog("<span class='who'>" + esc(G.oppName) + ":</span> " + esc(m.p.text), "opp", true); break;
+  }
+}
+
+function startGame() {
+  setConn(true);
+  buildLibrary();
+  $("setup").style.display = "none";
+  $("game").classList.add("on");
+  $("myNameLbl").textContent = G.myName;
+  $("oppNameLbl").textContent = G.oppName;
+  $("oppNameLbl2").textContent = G.oppName;
+  sysLog("Connected! Both players: roll for first (dice buttons), click “Opening hand”, then play. Right-click cards for actions.");
+  if (G.side === "host") sendTurn();
+  renderAll(); pushState();
+}
+
+/* ================= Game state helpers ================= */
+
+function buildLibrary() {
+  G.me.library = G.deck.map(t => ({
+    id: uid(), ...t,
+    tapped: false, faceDown: false, flipped: false, attacking: false, blocking: false,
+    p1: 0, misc: 0, token: false, ts: 0,
+  }));
+  shuffleArr(G.me.library);
+}
+
+const serCard = c => ({
+  id: c.id, name: c.name, img: c.img, back: c.back, type: c.type, pt: c.pt,
+  tapped: c.tapped, faceDown: c.faceDown, flipped: c.flipped,
+  attacking: c.attacking, blocking: c.blocking, p1: c.p1, misc: c.misc, token: c.token, ts: c.ts,
+});
+
+function publicState() {
+  const m = G.me;
+  return {
+    name: G.myName, life: m.life, poison: m.poison,
+    handCount: m.hand.length, libCount: m.library.length,
+    grave: m.grave.map(serCard), exile: m.exile.map(serCard),
+    front: m.front.map(serCard), back: m.back.map(serCard), stack: m.stack.map(serCard),
+  };
+}
+
+function applyOppState(s) {
+  if (!s) return;
+  G.opp.life = s.life | 0; G.opp.poison = s.poison | 0;
+  G.opp.handCount = s.handCount | 0; G.opp.libCount = s.libCount | 0;
+  G.opp.grave = s.grave || []; G.opp.exile = s.exile || [];
+  G.opp.front = s.front || []; G.opp.back = s.back || []; G.opp.stack = s.stack || [];
+}
+
+let pushTimer = null;
+function pushState() {
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(() => send("state", publicState()), 40);
+  renderAll();
+}
+
+function myLog(text) { addLog("<span class='who'>" + esc(G.myName) + "</span> " + text, "me", true); send("log", { text: "<span class='who'>" + esc(G.myName) + "</span> " + text }); }
+function sysLog(text) { addLog(esc(text), "sys"); }
+function addLog(html, cls, isHtml) {
+  const d = document.createElement("div");
+  d.className = "e " + cls;
+  if (isHtml || cls === "opp") d.innerHTML = html; else d.textContent = html.replace(/&lt;/g, "<");
+  if (cls === "sys") d.innerHTML = html;
+  $("log").appendChild(d);
+  $("log").scrollTop = 1e9;
+}
+
+let toastTimer = null;
+function toast(t) {
+  $("toast").textContent = t; $("toast").classList.add("on");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => $("toast").classList.remove("on"), 2600);
+}
+
+/* ================= Zone movement ================= */
+
+const ZONES = ["library", "hand", "grave", "exile", "front", "back", "stack"];
+const zoneLabel = { library: "library", hand: "hand", grave: "graveyard", exile: "exile", front: "battlefield", back: "battlefield", stack: "stack" };
+
+function findCard(id) {
+  for (const z of ZONES) {
+    const i = G.me[z].findIndex(c => c.id === id);
+    if (i >= 0) return { zone: z, idx: i, card: G.me[z][i] };
+  }
+  return null;
+}
+
+function resetFlags(c) { c.tapped = false; c.faceDown = false; c.attacking = false; c.blocking = false; c.p1 = 0; c.misc = 0; c.flipped = false; }
+
+function moveCard(id, to, opts = {}) {
+  const loc = findCard(id);
+  if (!loc) return;
+  const c = loc.card;
+  G.me[loc.zone].splice(loc.idx, 1);
+  if (c.token && !(to === "front" || to === "back" || to === "stack")) {
+    myLog("'s token <b>" + esc(c.name) + "</b> ceases to exist");
+    pushState(); return;
+  }
+  if (!(to === "front" || to === "back")) resetFlags(c);
+  if (to === "front" || to === "back" || to === "stack") c.ts = Date.now();
+  if (opts.faceDown) c.faceDown = true;
+  if (to === "library") {
+    opts.bottom ? G.me.library.push(c) : G.me.library.unshift(c);
+  } else {
+    G.me[to].push(c);
+  }
+  if (!opts.silent) {
+    const what = (c.faceDown && to !== "hand") ? "a face-down card" : "<b>" + esc(c.name) + "</b>";
+    const fromL = zoneLabel[loc.zone], toL = to === "library" ? (opts.bottom ? "bottom of library" : "top of library") : zoneLabel[to];
+    if (loc.zone === "hand" && to === "grave") myLog("discards " + what);
+    else if (loc.zone === "hand" && (to === "front" || to === "back")) myLog("plays " + what);
+    else if (loc.zone === "hand" && to === "stack") myLog("casts " + what);
+    else if (to === "grave" && (loc.zone === "front" || loc.zone === "back")) myLog("puts " + what + " into the graveyard");
+    else myLog("moves " + what + " from " + fromL + " to " + toL);
+  }
+  pushState();
+}
+
+function fieldRowFor(c) { return /\bLand\b/.test(c.type) ? "back" : "front"; }
+
+function drawCards(n) {
+  let drawn = 0;
+  for (let i = 0; i < n; i++) {
+    const c = G.me.library.shift();
+    if (!c) break;
+    resetFlags(c); G.me.hand.push(c); drawn++;
+  }
+  if (drawn) myLog("draws " + drawn + " card" + (drawn > 1 ? "s" : "") + " (" + G.me.library.length + " left)");
+  if (drawn < n) toast("Library is empty!");
+  pushState();
+}
+
+function shuffleLib(silent) {
+  shuffleArr(G.me.library);
+  if (!silent) myLog("shuffles their library");
+  pushState();
+}
+
+function openingHand() {
+  // return everything to library, shuffle, draw 7
+  for (const z of ["hand", "grave", "exile", "front", "back", "stack"]) {
+    for (const c of G.me[z]) if (!c.token) { resetFlags(c); G.me.library.push(c); }
+    G.me[z] = [];
+  }
+  shuffleArr(G.me.library);
+  for (let i = 0; i < 7; i++) { const c = G.me.library.shift(); if (c) G.me.hand.push(c); }
+  G.me.life = 20; G.me.poison = 0;
+  myLog("shuffles up and draws an opening hand of " + G.me.hand.length);
+  pushState();
+}
+
+function mulligan() {
+  const n = G.me.hand.length;
+  if (!n) return;
+  for (const c of G.me.hand) G.me.library.push(c);
+  G.me.hand = [];
+  shuffleArr(G.me.library);
+  for (let i = 0; i < 7; i++) { const c = G.me.library.shift(); if (c) G.me.hand.push(c); }
+  myLog("mulligans (drew 7 — remember to put " + "cards on the bottom per London mulligan)");
+  pushState();
+}
+
+function untapAll() {
+  let n = 0;
+  for (const z of ["front", "back"]) for (const c of G.me[z]) { if (c.tapped) n++; c.tapped = false; }
+  if (n) myLog("untaps all permanents (" + n + ")");
+  pushState();
+}
+
+function clearCombat() {
+  for (const z of ["front", "back"]) for (const c of G.me[z]) { c.attacking = false; c.blocking = false; }
+}
+
+function mill(n) {
+  let m = 0;
+  for (let i = 0; i < n; i++) { const c = G.me.library.shift(); if (!c) break; resetFlags(c); G.me.grave.push(c); m++; }
+  if (m) myLog("mills " + m + " card" + (m > 1 ? "s" : ""));
+  pushState();
+}
+
+/* ================= Turn / phases ================= */
+
+const isMyTurn = () => G.turn.active === G.side;
+
+function sendTurn() { send("turn", G.turn); }
+
+function nextPhase() {
+  if (!isMyTurn()) return;
+  if (G.turn.phase < PHASES.length - 1) {
+    G.turn.phase++;
+    onTurnChanged(true);
+    sendTurn(); renderAll();
+  } else endTurn();
+}
+
+function endTurn() {
+  if (!isMyTurn()) return;
+  clearCombat();
+  G.turn = { active: G.side === "host" ? "guest" : "host", num: G.turn.num + 1, phase: 0 };
+  myLog("ends the turn");
+  sendTurn(); pushState();
+}
+
+function onTurnChanged(iAdvanced) {
+  const ph = PHASES[G.turn.phase];
+  if (isMyTurn() && G.turn.phase === 0) {
+    // my untap step begins
+    clearCombat(); untapAll();
+    toast("Your turn! Untap step — permanents untapped.");
+    G.turn.phase = 1; sendTurn();
+  } else if (isMyTurn() && ph === "Draw" && iAdvanced) {
+    toast("Draw step — click Draw.");
+  }
+}
+
+/* ================= Rendering ================= */
+
+function cardDiv(c, mine, zone) {
+  const d = document.createElement("div");
+  d.className = "card enter";
+  d.dataset.id = c.id;
+  const showImg = !c.faceDown;
+  if (showImg) {
+    const url = (c.flipped && c.back) ? c.back : c.img;
+    if (url) d.style.backgroundImage = "url('" + url + "')";
+  } else d.classList.add("facedown");
+  if (c.tapped) d.classList.add("tapped");
+  if (c.attacking) d.classList.add("attacking");
+  if (c.blocking) d.classList.add("blocking");
+  if (c.p1) d.insertAdjacentHTML("beforeend", "<span class='badge'>" + (c.p1 > 0 ? "+" + c.p1 + "/+" + c.p1 : c.p1 + "/" + c.p1) + "</span>");
+  if (c.misc) d.insertAdjacentHTML("beforeend", "<span class='badge misc'>" + c.misc + "</span>");
+  if (c.token) d.insertAdjacentHTML("beforeend", "<span class='badge tok'>T</span>");
+  if (showImg || mine) {
+    d.addEventListener("mouseenter", () => setPreview((c.flipped && c.back) ? c.back : c.img, c));
+  }
+  d.title = showImg || mine ? c.name + (c.pt ? "  " + c.pt : "") : "Face-down card";
+  if (mine) {
+    d.draggable = true;
+    d.addEventListener("dragstart", ev => {
+      ev.dataTransfer.setData("text/plain", JSON.stringify({ id: c.id }));
+      ev.dataTransfer.effectAllowed = "move";
+    });
+    if (zone === "front" || zone === "back") {
+      d.addEventListener("click", () => { c.tapped = !c.tapped; myLog((c.tapped ? "taps " : "untaps ") + (c.faceDown ? "a face-down card" : "<b>" + esc(c.name) + "</b>")); pushState(); });
+    } else if (zone === "hand") {
+      d.addEventListener("click", ev => openCardMenu(c, zone, ev.clientX, ev.clientY));
+    } else if (zone === "stack") {
+      d.addEventListener("click", ev => openCardMenu(c, zone, ev.clientX, ev.clientY));
+    }
+    d.addEventListener("contextmenu", ev => { ev.preventDefault(); openCardMenu(c, zone, ev.clientX, ev.clientY); });
+  }
+  return d;
+}
+
+function setPreview(url, c) {
+  $("preview").style.backgroundImage = url ? "url('" + url + "')" : "none";
+}
+
+function renderField(elId, cards, mine, zone) {
+  const el = $(elId);
+  el.querySelectorAll(".card").forEach(n => n.remove());
+  for (const c of cards) el.appendChild(cardDiv(c, mine, zone));
+}
+
+function renderAll() {
+  if (!$("game").classList.contains("on")) return;
+  // mine
+  renderField("myFront", G.me.front, true, "front");
+  renderField("myBack", G.me.back, true, "back");
+  const hr = $("handRow"); hr.querySelectorAll(".card").forEach(n => n.remove());
+  for (const c of G.me.hand) hr.appendChild(cardDiv(c, true, "hand"));
+  $("myLibCnt").textContent = G.me.library.length;
+  $("myGraveCnt").textContent = G.me.grave.length;
+  $("myExileCnt").textContent = G.me.exile.length;
+  pileTop($("myGravePile"), G.me.grave);
+  pileTop($("myExilePile"), G.me.exile);
+  $("myLife").textContent = G.me.life;
+  $("myPoison").textContent = G.me.poison;
+  // opp
+  renderField("oppFront", G.opp.front, false, "front");
+  renderField("oppBack", G.opp.back, false, "back");
+  const ohr = $("oppHandRow"); ohr.querySelectorAll(".oppback").forEach(n => n.remove());
+  for (let i = 0; i < G.opp.handCount; i++) { const b = document.createElement("div"); b.className = "oppback"; ohr.appendChild(b); }
+  $("oppLibCnt").textContent = G.opp.libCount;
+  $("oppGraveCnt").textContent = G.opp.grave.length;
+  $("oppExileCnt").textContent = G.opp.exile.length;
+  pileTop($("oppGravePile"), G.opp.grave);
+  pileTop($("oppExilePile"), G.opp.exile);
+  $("oppLife").textContent = G.opp.life;
+  $("oppPoison").textContent = G.opp.poison;
+  // stack (shared, ordered by cast time)
+  const sr = $("stackRow"); sr.querySelectorAll(".card").forEach(n => n.remove());
+  const items = [...G.me.stack.map(c => ({ c, mine: true })), ...G.opp.stack.map(c => ({ c, mine: false }))].sort((a, b) => a.c.ts - b.c.ts);
+  for (const it of items) {
+    const d = cardDiv(it.c, it.mine, "stack");
+    d.classList.add("small");
+    d.style.borderColor = it.mine ? "var(--gold)" : "var(--blue)";
+    sr.appendChild(d);
+  }
+  // turn bar
+  const mine = isMyTurn();
+  $("turnWho").textContent = (mine ? "Your turn" : G.oppName + "'s turn") + " — " + PHASES[G.turn.phase];
+  $("turnWho").className = "phase " + (mine ? "mine" : "theirs");
+  $("turnNum").textContent = "turn " + G.turn.num;
+  const pt = $("phaseTrack"); pt.innerHTML = "";
+  PHASES.forEach((p, i) => {
+    const s = document.createElement("span");
+    s.className = "ph" + (i === G.turn.phase ? " cur" : ""); s.textContent = p;
+    pt.appendChild(s);
+  });
+  $("btnNextPhase").disabled = !mine;
+  $("btnEndTurn").disabled = !mine;
+}
+
+function pileTop(el, arr) {
+  const top = arr[arr.length - 1];
+  el.style.backgroundImage = top ? "url('" + top.img + "')" : "none";
+}
+
+/* ================= Context menu ================= */
+
+function openMenu(items, x, y) {
+  const m = $("menu");
+  m.innerHTML = "";
+  for (const it of items) {
+    if (it === "-") { m.insertAdjacentHTML("beforeend", "<div class='sep'></div>"); continue; }
+    const d = document.createElement("div");
+    d.className = "mi"; d.textContent = it.label;
+    d.addEventListener("click", () => { closeMenu(); it.fn(); });
+    m.appendChild(d);
+  }
+  m.style.display = "block";
+  const r = m.getBoundingClientRect();
+  m.style.left = Math.min(x, innerWidth - r.width - 8) + "px";
+  m.style.top = Math.min(y, innerHeight - r.height - 8) + "px";
+}
+function closeMenu() { $("menu").style.display = "none"; }
+document.addEventListener("click", e => { if (!$("menu").contains(e.target)) closeMenu(); });
+document.addEventListener("contextmenu", e => { if (!e.target.closest(".card") && !e.target.closest(".pile")) closeMenu(); });
+
+function openCardMenu(c, zone, x, y) {
+  const items = [];
+  const onField = zone === "front" || zone === "back";
+  if (zone === "hand") {
+    items.push(
+      { label: "▶ Play to battlefield", fn: () => moveCard(c.id, fieldRowFor(c)) },
+      { label: "⚡ Cast (to stack)", fn: () => moveCard(c.id, "stack") },
+      { label: "🂠 Play face-down", fn: () => moveCard(c.id, fieldRowFor(c), { faceDown: true }) },
+      "-",
+      { label: "Reveal to opponent", fn: () => myLog("reveals <b>" + esc(c.name) + "</b> from hand") },
+      { label: "Discard", fn: () => moveCard(c.id, "grave") },
+      { label: "Exile", fn: () => moveCard(c.id, "exile") },
+      { label: "Top of library", fn: () => moveCard(c.id, "library") },
+      { label: "Bottom of library", fn: () => moveCard(c.id, "library", { bottom: true }) },
+    );
+  } else if (onField) {
+    items.push(
+      { label: c.tapped ? "Untap" : "Tap", fn: () => { c.tapped = !c.tapped; myLog((c.tapped ? "taps" : "untaps") + " <b>" + esc(c.name) + "</b>"); pushState(); } },
+      { label: c.attacking ? "Remove from combat" : "⚔ Declare attacker", fn: () => { c.attacking = !c.attacking; if (c.attacking) { c.blocking = false; c.tapped = true; } myLog(c.attacking ? "attacks with <b>" + esc(c.name) + "</b>" : "removes <b>" + esc(c.name) + "</b> from combat"); pushState(); } },
+      { label: c.blocking ? "Stop blocking" : "🛡 Declare blocker", fn: () => { c.blocking = !c.blocking; if (c.blocking) c.attacking = false; myLog(c.blocking ? "blocks with <b>" + esc(c.name) + "</b>" : "<b>" + esc(c.name) + "</b> stops blocking"); pushState(); } },
+      "-",
+      { label: "+1/+1 counter", fn: () => { c.p1++; myLog("puts a +1/+1 counter on <b>" + esc(c.name) + "</b> (" + c.p1 + ")"); pushState(); } },
+      { label: "−1/−1 counter", fn: () => { c.p1--; myLog("puts a −1/−1 counter on <b>" + esc(c.name) + "</b> (" + c.p1 + ")"); pushState(); } },
+      { label: "Counter +1 (loyalty/charge…)", fn: () => { c.misc++; myLog("adds a counter to <b>" + esc(c.name) + "</b> (" + c.misc + ")"); pushState(); } },
+      { label: "Counter −1", fn: () => { c.misc--; myLog("removes a counter from <b>" + esc(c.name) + "</b> (" + c.misc + ")"); pushState(); } },
+      "-",
+    );
+    if (c.back) items.push({ label: c.flipped ? "Transform to front face" : "Transform ⇄", fn: () => { c.flipped = !c.flipped; myLog("transforms <b>" + esc(c.name) + "</b>"); pushState(); } });
+    items.push(
+      { label: c.faceDown ? "Turn face up" : "Turn face down", fn: () => { c.faceDown = !c.faceDown; myLog(c.faceDown ? "turns <b>" + esc(c.name) + "</b> face down" : "turns a card face up: <b>" + esc(c.name) + "</b>"); pushState(); } },
+      { label: "Clone (token copy)", fn: () => { const k = { ...serCard(c), id: uid(), token: true, ts: Date.now(), tapped: false, attacking: false, blocking: false }; G.me[zone].push(k); myLog("creates a token copy of <b>" + esc(c.name) + "</b>"); pushState(); } },
+      { label: "Move to other row", fn: () => moveCard(c.id, zone === "front" ? "back" : "front", { silent: true }) },
+      "-",
+      { label: "To hand", fn: () => moveCard(c.id, "hand") },
+      { label: "To graveyard", fn: () => moveCard(c.id, "grave") },
+      { label: "To exile", fn: () => moveCard(c.id, "exile") },
+      { label: "Top of library", fn: () => moveCard(c.id, "library") },
+      { label: "Bottom of library", fn: () => moveCard(c.id, "library", { bottom: true }) },
+    );
+  } else if (zone === "stack") {
+    items.push(
+      { label: "✔ Resolve → battlefield", fn: () => moveCard(c.id, fieldRowFor(c)) },
+      { label: "✔ Resolve → graveyard", fn: () => moveCard(c.id, "grave") },
+      { label: "✘ Countered → graveyard", fn: () => { myLog("'s <b>" + esc(c.name) + "</b> is countered"); moveCard(c.id, "grave", { silent: true }); } },
+      { label: "Return to hand", fn: () => moveCard(c.id, "hand") },
+      { label: "Exile", fn: () => moveCard(c.id, "exile") },
+    );
+  }
+  openMenu(items, x, y);
+}
+
+/* ================= Drag & drop ================= */
+
+function wireDrop(elId, getTarget) {
+  const el = $(elId);
+  el.addEventListener("dragover", ev => { ev.preventDefault(); el.classList.add("droptarget"); });
+  el.addEventListener("dragleave", () => el.classList.remove("droptarget"));
+  el.addEventListener("drop", ev => {
+    ev.preventDefault(); el.classList.remove("droptarget");
+    try {
+      const { id } = JSON.parse(ev.dataTransfer.getData("text/plain"));
+      const t = getTarget();
+      moveCard(id, t.zone, t.opts || {});
+    } catch (_) {}
+  });
+}
+
+/* ================= Modals ================= */
+
+function showModal(title, bodyBuilder, buttons) {
+  $("modalTitle").textContent = title;
+  const body = $("modalBody"); body.innerHTML = "";
+  bodyBuilder(body);
+  const btns = $("modalBtns"); btns.innerHTML = "";
+  for (const b of buttons || [{ label: "Close" }]) {
+    const x = document.createElement("button");
+    x.textContent = b.label;
+    if (b.primary) x.className = "primary";
+    x.addEventListener("click", () => { if (b.fn) b.fn(); closeModal(); });
+    btns.appendChild(x);
+  }
+  $("modalWrap").classList.add("on");
+}
+function closeModal() { $("modalWrap").classList.remove("on"); }
+$("modalWrap").addEventListener("click", e => { if (e.target === $("modalWrap")) closeModal(); });
+
+function mcardEl(c, actions) {
+  const d = document.createElement("div");
+  d.className = "mcard";
+  const img = document.createElement("div");
+  img.className = "img";
+  if (c.img) img.style.backgroundImage = "url('" + c.img + "')";
+  img.title = c.name;
+  img.addEventListener("mouseenter", () => setPreview(c.img, c));
+  d.appendChild(img);
+  const acts = document.createElement("div");
+  acts.className = "acts";
+  for (const a of actions) {
+    const b = document.createElement("button");
+    b.textContent = a.label;
+    b.addEventListener("click", () => { a.fn(); d.remove(); });
+    acts.appendChild(b);
+  }
+  d.appendChild(acts);
+  return d;
+}
+
+function viewMyZone(zone, title) {
+  showModal(title + " (" + G.me[zone].length + ")", body => {
+    for (const c of [...G.me[zone]].reverse()) {
+      body.appendChild(mcardEl(c, [
+        { label: "Hand", fn: () => moveCard(c.id, "hand") },
+        { label: "Field", fn: () => moveCard(c.id, fieldRowFor(c)) },
+        { label: zone === "grave" ? "Exile" : "Grave", fn: () => moveCard(c.id, zone === "grave" ? "exile" : "grave") },
+        { label: "Lib top", fn: () => moveCard(c.id, "library") },
+      ]));
+    }
+    if (!G.me[zone].length) body.textContent = "Empty.";
+  });
+}
+
+function viewOppZone(zone, title) {
+  showModal(G.oppName + "'s " + title + " (" + G.opp[zone].length + ")", body => {
+    for (const c of [...G.opp[zone]].reverse()) body.appendChild(mcardEl(c, []));
+    if (!G.opp[zone].length) body.textContent = "Empty.";
+  });
+}
+
+function searchLibrary() {
+  let touched = false;
+  showModal("Search library (" + G.me.library.length + ") — will shuffle after", body => {
+    const sorted = [...G.me.library].sort((a, b) => a.name.localeCompare(b.name));
+    for (const c of sorted) {
+      body.appendChild(mcardEl(c, [
+        { label: "Hand", fn: () => { touched = true; moveCard(c.id, "hand"); } },
+        { label: "Field", fn: () => { touched = true; moveCard(c.id, fieldRowFor(c)); } },
+        { label: "Grave", fn: () => { touched = true; moveCard(c.id, "grave"); } },
+        { label: "Top", fn: () => { touched = true; moveCard(c.id, "library"); } },
+      ]));
+    }
+    if (!sorted.length) body.textContent = "Library is empty.";
+  }, [{ label: "Done (shuffle)", primary: true, fn: () => { myLog("searched their library"); shuffleLib(); } }]);
+}
+
+function scryModal() {
+  const n = Math.min(parseInt(prompt("Scry how many?", "2") || "0", 10) || 0, G.me.library.length);
+  if (n < 1) return;
+  const cards = G.me.library.slice(0, n);
+  const dec = cards.map(c => ({ c, bottom: false }));
+  showModal("Scry " + n + " — choose top (keep order) or bottom", body => {
+    for (const d of dec) {
+      const row = document.createElement("div");
+      row.className = "scryrow";
+      const img = document.createElement("div");
+      img.className = "img";
+      if (d.c.img) img.style.backgroundImage = "url('" + d.c.img + "')";
+      img.addEventListener("mouseenter", () => setPreview(d.c.img, d.c));
+      const nm = document.createElement("span"); nm.className = "nm"; nm.textContent = d.c.name;
+      const bt = document.createElement("button"); bt.textContent = "Top"; bt.className = "sel";
+      const bb = document.createElement("button"); bb.textContent = "Bottom";
+      bt.addEventListener("click", () => { d.bottom = false; bt.className = "sel"; bb.className = ""; });
+      bb.addEventListener("click", () => { d.bottom = true; bb.className = "sel"; bt.className = ""; });
+      row.append(img, nm, bt, bb);
+      body.appendChild(row);
+    }
+  }, [{
+    label: "Confirm", primary: true, fn: () => {
+      const tops = dec.filter(d => !d.bottom).map(d => d.c);
+      const bots = dec.filter(d => d.bottom).map(d => d.c);
+      G.me.library = tops.concat(G.me.library.slice(n)).concat(bots);
+      myLog("scries " + n + " (" + tops.length + " top, " + bots.length + " bottom)");
+      pushState();
+    }
+  }, { label: "Cancel" }]);
+}
+
+async function tokenModal() {
+  const q = prompt("Token / card name to create (e.g. Soldier, Treasure, Goblin)…");
+  if (!q) return;
+  toast("Searching Scryfall…");
+  let cards = [];
+  try {
+    let res = await fetch("https://api.scryfall.com/cards/search?q=" + encodeURIComponent('t:token "' + q + '"') + "&include_extras=true&unique=cards");
+    if (res.ok) cards = (await res.json()).data || [];
+    if (!cards.length) {
+      res = await fetch("https://api.scryfall.com/cards/named?fuzzy=" + encodeURIComponent(q));
+      if (res.ok) cards = [await res.json()];
+    }
+  } catch (_) {}
+  if (!cards.length) { toast("Nothing found for “" + q + "”"); return; }
+  showModal("Create token — pick one", body => {
+    for (const raw of cards.slice(0, 16)) {
+      const t = cardTemplate(raw);
+      body.appendChild(mcardEl(t, [{
+        label: "Create", fn: () => {
+          const k = { id: uid(), ...t, tapped: false, faceDown: false, flipped: false, attacking: false, blocking: false, p1: 0, misc: 0, token: true, ts: Date.now() };
+          G.me[fieldRowFor(k)].push(k);
+          myLog("creates a <b>" + esc(t.name) + "</b> token");
+          pushState(); closeModal();
+        }
+      }]));
+    }
+  });
+}
+
+function libraryMenu(x, y) {
+  openMenu([
+    { label: "Draw 1", fn: () => drawCards(1) },
+    { label: "Draw X…", fn: () => { const n = parseInt(prompt("Draw how many?", "1") || "0", 10); if (n > 0) drawCards(n); } },
+    { label: "Shuffle", fn: () => shuffleLib() },
+    { label: "Scry…", fn: scryModal },
+    { label: "Search library…", fn: searchLibrary },
+    "-",
+    { label: "Reveal top card", fn: () => { const c = G.me.library[0]; if (c) { myLog("reveals the top card: <b>" + esc(c.name) + "</b>"); setPreview(c.img, c); } } },
+    { label: "Mill 1", fn: () => mill(1) },
+    { label: "Mill X…", fn: () => { const n = parseInt(prompt("Mill how many?", "3") || "0", 10); if (n > 0) mill(n); } },
+  ], x, y);
+}
+
+/* ================= Wiring ================= */
+
+$("btnLoadDeck").addEventListener("click", loadDeck);
+$("btnSample").addEventListener("click", () => {
+  $("deckText").value = ["4 Lightning Bolt", "4 Monastery Swiftspear", "4 Lava Spike", "4 Rift Bolt", "4 Skewer the Critics",
+    "4 Goblin Guide", "4 Eidolon of the Great Revel", "4 Boros Charm", "4 Lightning Helix", "4 Searing Blaze",
+    "17 Mountain", "3 Sacred Foundry"].join("\n");
+});
+$("btnHost").addEventListener("click", () => { confirmName(); hostGame(); });
+$("btnJoin").addEventListener("click", () => { confirmName(); joinGame(); });
+function confirmName() { G.myName = ($("playerName").value.trim() || "Player-" + gameCode().slice(0, 3)).slice(0, 20); }
+
+$("lifePlus").addEventListener("click", () => { G.me.life++; myLog("is at " + G.me.life + " life"); pushState(); });
+$("lifeMinus").addEventListener("click", () => { G.me.life--; myLog("is at " + G.me.life + " life"); pushState(); });
+$("poisonPlus").addEventListener("click", () => { G.me.poison++; myLog("has " + G.me.poison + " poison"); pushState(); });
+$("poisonMinus").addEventListener("click", () => { if (G.me.poison > 0) G.me.poison--; myLog("has " + G.me.poison + " poison"); pushState(); });
+
+$("btnDraw").addEventListener("click", () => drawCards(1));
+$("btnUntapAll").addEventListener("click", untapAll);
+$("btnOpening").addEventListener("click", () => { if (confirm("Reset your side and draw a fresh 7?")) openingHand(); });
+$("btnMulligan").addEventListener("click", () => { if (confirm("Shuffle hand into library and draw 7?")) mulligan(); });
+$("btnShuffle").addEventListener("click", () => shuffleLib());
+$("btnScry").addEventListener("click", scryModal);
+$("btnSearch").addEventListener("click", searchLibrary);
+$("btnToken").addEventListener("click", tokenModal);
+$("btnCoin").addEventListener("click", () => myLog("flips a coin: <b>" + (Math.random() < .5 ? "Heads" : "Tails") + "</b>"));
+$("btnD6").addEventListener("click", () => myLog("rolls a d6: <b>" + (1 + Math.floor(Math.random() * 6)) + "</b>"));
+$("btnD20").addEventListener("click", () => myLog("rolls a d20: <b>" + (1 + Math.floor(Math.random() * 20)) + "</b>"));
+$("btnNextPhase").addEventListener("click", nextPhase);
+$("btnEndTurn").addEventListener("click", endTurn);
+
+$("myLibPile").addEventListener("click", e => libraryMenu(e.clientX, e.clientY));
+$("myLibPile").addEventListener("contextmenu", e => { e.preventDefault(); libraryMenu(e.clientX, e.clientY); });
+$("myGravePile").addEventListener("click", () => viewMyZone("grave", "Your graveyard"));
+$("myExilePile").addEventListener("click", () => viewMyZone("exile", "Your exile"));
+$("oppGravePile").addEventListener("click", () => viewOppZone("grave", "graveyard"));
+$("oppExilePile").addEventListener("click", () => viewOppZone("exile", "exile"));
+
+wireDrop("myFront", () => ({ zone: "front" }));
+wireDrop("myBack", () => ({ zone: "back" }));
+wireDrop("handRow", () => ({ zone: "hand" }));
+wireDrop("stackRow", () => ({ zone: "stack" }));
+wireDrop("myGravePile", () => ({ zone: "grave" }));
+wireDrop("myExilePile", () => ({ zone: "exile" }));
+wireDrop("myLibPile", () => ({ zone: "library" }));
+
+$("chatForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const t = $("chatInput").value.trim();
+  if (!t) return;
+  addLog("<span class='who'>" + esc(G.myName) + ":</span> " + esc(t), "me", true);
+  send("chat", { text: t });
+  $("chatInput").value = "";
+});
+
+$("btnHelp").addEventListener("click", () => showModal("How to play", body => {
+  body.innerHTML = `<div style="font-size:13px;line-height:1.65;color:var(--txt)">
+  <b>Setup.</b> Both players load a deck, then one creates a game and shares the 5-letter code; the other joins. Roll a die for who goes first, then both click <i>Opening hand</i>.<br/><br/>
+  <b>Cards.</b> <i>Click</i> a battlefield card to tap/untap. <i>Right-click</i> (or click in hand/stack) for the full menu: attack, block, counters, transform, face-down, graveyard, exile… <i>Drag</i> cards between hand, battlefield rows (lands go to the back row), stack, graveyard, exile and library.<br/><br/>
+  <b>Stack.</b> Cast spells to the central stack so your opponent can respond; then resolve them to the battlefield or graveyard from the card's menu.<br/><br/>
+  <b>Turns.</b> The active player advances phases with <i>Next phase</i> / <i>End turn</i>. Untap is automatic at the start of your turn; draw with the <i>Draw</i> button. Combat: mark attackers/blockers from card menus, do the math, adjust life with +/−.<br/><br/>
+  <b>Rules.</b> Like a real table, the game doesn't force the rules — you and your opponent do. Everything you do is written to the shared log, and your hand/library stay private on your machine.<br/><br/>
+  <span style="color:var(--muted)">Unofficial fan project. Card data &amp; images from Scryfall. Magic: The Gathering is © Wizards of the Coast.</span></div>`;
+}));
+
+window.addEventListener("beforeunload", e => {
+  if (G.connected) { e.preventDefault(); e.returnValue = ""; }
+});
+</script>
+</body>
+</html>
