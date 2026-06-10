@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Halide — Halation &amp; Film Editor</title>
+<style>
+  :root {
+    --bg: #0b0c0f;
+    --panel: #14161b;
+    --panel-2: #1a1d24;
+    --line: #272b34;
+    --txt: #e9e6e0;
+    --muted: #98948d;
+    --ember: #ff6a3c;
+    --ember-soft: rgba(255,106,60,0.14);
+    --amber: #ffb36b;
+    --radius: 12px;
+    --radius-sm: 8px;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--txt);
+    font: 14px/1.45 ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  header {
+    display: flex; align-items: center; gap: 14px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, #14161b, #101216);
+    flex: 0 0 auto;
+  }
+  header h1 {
+    margin: 0; font-size: 16px; font-weight: 700; letter-spacing: 0.4px;
+  }
+  header h1 .glow { color: var(--ember); text-shadow: 0 0 14px rgba(255,106,60,0.55); }
+  header .tag { color: var(--muted); font-size: 12px; }
+  header .spacer { flex: 1; }
+
+  button, label.btn {
+    appearance: none; border: 1px solid var(--line); background: var(--panel-2);
+    color: var(--txt); border-radius: var(--radius-sm); padding: 7px 13px;
+    font: inherit; font-size: 13px; cursor: pointer; user-select: none;
+    transition: border-color .15s, background .15s;
+  }
+  button:hover, label.btn:hover { border-color: var(--ember); }
+  button.primary { background: var(--ember); border-color: var(--ember); color: #160a06; font-weight: 700; }
+  button.primary:hover { filter: brightness(1.08); }
+  button:active { transform: translateY(1px); }
+  input[type="file"] { display: none; }
+
+  main { flex: 1; display: flex; min-height: 0; }
+
+  /* ---- Stage ---- */
+  #stage {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    position: relative; min-width: 0; padding: 18px;
+    background:
+      radial-gradient(1200px 500px at 50% -10%, rgba(255,106,60,0.05), transparent 60%),
+      #0b0c0f;
+  }
+  #stage.dragover { outline: 2px dashed var(--ember); outline-offset: -10px; }
+  canvas {
+    max-width: 100%; max-height: 100%;
+    border-radius: 6px;
+    box-shadow: 0 18px 60px rgba(0,0,0,0.6);
+    background: #000;
+  }
+  #drophint {
+    position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
+    color: var(--muted); font-size: 12px; pointer-events: none;
+    background: rgba(10,11,14,0.7); padding: 4px 12px; border-radius: 999px;
+    border: 1px solid var(--line);
+  }
+  #glerror {
+    position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+    text-align: center; padding: 40px; color: var(--muted);
+  }
+
+  /* ---- Panel ---- */
+  #panel {
+    flex: 0 0 340px; max-width: 340px;
+    border-left: 1px solid var(--line);
+    background: var(--panel);
+    overflow-y: auto; overscroll-behavior: contain;
+    padding: 14px 14px 40px;
+  }
+  #panel::-webkit-scrollbar { width: 9px; }
+  #panel::-webkit-scrollbar-thumb { background: #2b2f39; border-radius: 6px; }
+
+  .group {
+    border: 1px solid var(--line); border-radius: var(--radius);
+    background: var(--panel-2); padding: 12px; margin-bottom: 12px;
+  }
+  .group h2 {
+    margin: 0 0 4px; font-size: 12px; font-weight: 700;
+    letter-spacing: 1.2px; text-transform: uppercase; color: var(--amber);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .group h2 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ember);
+    box-shadow: 0 0 10px rgba(255,106,60,0.8); }
+  .group .sub { color: var(--muted); font-size: 12px; margin: 0 0 10px; }
+
+  .slider { margin: 10px 0 2px; }
+  .slider .row { display: flex; justify-content: space-between; font-size: 12.5px; margin-bottom: 3px; }
+  .slider .row .val { color: var(--amber); font-variant-numeric: tabular-nums; }
+  input[type="range"] {
+    -webkit-appearance: none; appearance: none; width: 100%; height: 22px;
+    background: transparent; cursor: pointer; margin: 0;
+  }
+  input[type="range"]::-webkit-slider-runnable-track {
+    height: 4px; border-radius: 2px;
+    background: linear-gradient(90deg, #3a2a22, var(--ember));
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 15px; height: 15px; border-radius: 50%;
+    background: #f3ede4; border: 2px solid var(--ember); margin-top: -5.5px;
+    box-shadow: 0 0 8px rgba(255,106,60,0.5);
+  }
+  input[type="range"]::-moz-range-track {
+    height: 4px; border-radius: 2px;
+    background: linear-gradient(90deg, #3a2a22, var(--ember));
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 12px; height: 12px; border-radius: 50%;
+    background: #f3ede4; border: 2px solid var(--ember);
+  }
+
+  .swatchrow { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+  #halswatch { width: 34px; height: 18px; border-radius: 5px; border: 1px solid var(--line); }
+  .swatchrow span { color: var(--muted); font-size: 12px; }
+
+  .check { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 12.5px; color: var(--muted); cursor: pointer; }
+  .check input { accent-color: var(--ember); }
+
+  /* film stock chips */
+  .stocks { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
+  .chip {
+    border: 1px solid var(--line); border-radius: var(--radius-sm);
+    background: #14161c; padding: 7px 9px; cursor: pointer;
+    transition: border-color .12s, background .12s;
+  }
+  .chip:hover { border-color: var(--amber); }
+  .chip.active { border-color: var(--ember); background: var(--ember-soft); }
+  .chip .nm { font-size: 12px; font-weight: 600; line-height: 1.2; }
+  .chip .tp { font-size: 10px; letter-spacing: 0.6px; text-transform: uppercase; margin-top: 2px; }
+  .tp.neg { color: #e8b46a; } .tp.slide { color: #7fc8a8; } .tp.bw { color: #aab2bf; }
+  .tp.cine { color: #7fa8e0; } .tp.inst { color: #d99ad4; }
+  #stockdesc { font-size: 12px; color: var(--muted); margin-top: 10px; min-height: 30px; }
+
+  details.explainer { border: 1px solid var(--line); border-radius: var(--radius);
+    background: var(--panel-2); padding: 10px 12px; margin-bottom: 12px; }
+  details.explainer summary { cursor: pointer; font-size: 12.5px; font-weight: 700; color: var(--amber); }
+  details.explainer p { font-size: 12.5px; color: var(--muted); }
+  details.explainer b { color: var(--txt); }
+  details.explainer svg { width: 100%; height: auto; margin: 8px 0; display: block; }
+
+  @media (max-width: 860px) {
+    main { flex-direction: column; overflow-y: auto; }
+    body { overflow: auto; }
+    #stage { min-height: 46vh; }
+    #panel { flex: none; max-width: none; border-left: none; border-top: 1px solid var(--line); }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Hal<span class="glow">a</span>tion Lab</h1>
+  <span class="tag">film glow &amp; stock simulation editor</span>
+  <span class="spacer"></span>
+  <label class="btn" for="file">Import image</label>
+  <input type="file" id="file" accept="image/*" />
+  <button id="compare" title="Hold to see the original (or hold C)">Hold to compare</button>
+  <button id="reset">Reset</button>
+  <button id="export" class="primary">Export PNG</button>
+</header>
+
+<main>
+  <section id="stage">
+    <canvas id="gl"></canvas>
+    <div id="drophint">Drop an image anywhere · paste from clipboard · or play with the built-in night scene</div>
+    <div id="glerror"><div><b>WebGL2 is not available.</b><br/>This editor needs WebGL2 for its real-time glow pipeline.<br/>Please use a recent Chrome, Edge, Firefox or Safari.</div></div>
+  </section>
+
+  <aside id="panel">
+
+    <details class="explainer">
+      <summary>How film halation works</summary>
+      <p>When a bright light source hits film, most light is absorbed by the
+      <b>emulsion layers</b> — but some keeps going, passes through the transparent
+      <b>film base</b>, and <b>reflects off the back</b> of the base (and the camera's
+      pressure plate) back up into the emulsion. The reflected light re-exposes the
+      film in a ring around the light source.</p>
+      <svg viewBox="0 0 320 150" role="img" aria-label="Cross-section of film showing halation">
+        <rect x="0" y="0" width="320" height="150" fill="#0d0f13"/>
+        <!-- incoming light -->
+        <line x1="120" y1="6" x2="150" y2="52" stroke="#ffe9a8" stroke-width="3"/>
+        <polygon points="150,52 141,42 152,40" fill="#ffe9a8"/>
+        <text x="62" y="16" fill="#ffe9a8" font-size="10">bright light</text>
+        <!-- emulsion layers -->
+        <rect x="20" y="52" width="280" height="10" fill="#3d5a91"/><text x="305" y="61" fill="#7fa8e0" font-size="8">B</text>
+        <rect x="20" y="62" width="280" height="10" fill="#3d7a55"/><text x="305" y="71" fill="#7fc8a8" font-size="8">G</text>
+        <rect x="20" y="72" width="280" height="10" fill="#8a3d3d"/><text x="305" y="81" fill="#e08a7f" font-size="8">R</text>
+        <text x="24" y="49" fill="#9aa4b5" font-size="9">emulsion (blue / green / red-sensitive)</text>
+        <!-- base -->
+        <rect x="20" y="82" width="280" height="26" fill="#23262e"/>
+        <text x="24" y="99" fill="#9aa4b5" font-size="9">film base (transparent)</text>
+        <!-- anti-halation -->
+        <rect x="20" y="108" width="280" height="7" fill="#11131a" stroke="#3a3325" stroke-dasharray="3 3"/>
+        <text x="24" y="128" fill="#c9a35e" font-size="9">anti-halation backing (removed in CineStill!)</text>
+        <!-- ray through and reflecting -->
+        <line x1="150" y1="52" x2="158" y2="108" stroke="#ffd27f" stroke-width="1.6" opacity="0.9"/>
+        <line x1="158" y1="108" x2="196" y2="72" stroke="#ff7a4d" stroke-width="1.6"/>
+        <line x1="158" y1="108" x2="120" y2="72" stroke="#ff7a4d" stroke-width="1.6"/>
+        <circle cx="196" cy="74" r="7" fill="#ff5a2e" opacity="0.55"/>
+        <circle cx="120" cy="74" r="7" fill="#ff5a2e" opacity="0.55"/>
+        <text x="206" y="78" fill="#ff8a5e" font-size="9">re-exposure → red halo</text>
+      </svg>
+      <p>The red-sensitive layer sits <b>deepest</b>, closest to the base, so the
+      reflected light mostly re-exposes red — that's why halation glows
+      <b>red-orange</b>, not white. Most stocks fight it with a dark
+      <b>anti-halation backing</b>; CineStill 800T famously has it removed, giving
+      its signature red halos around street lights and neon.</p>
+      <p><b>Bloom</b> is different: it's light scattering in the lens and within the
+      emulsion itself, producing a soft, <b>neutral-colored</b> veil around highlights.
+      Real photos on film show both at once — tune them independently below.</p>
+    </details>
+
+    <div class="group" id="g-halation">
+      <h2><span class="dot"></span>Halation</h2>
+      <p class="sub">Red-orange glow ringing bright lights — reflection off the film base.</p>
+      <div class="swatchrow"><div id="halswatch"></div><span>halation tint</span></div>
+    </div>
+
+    <div class="group" id="g-bloom">
+      <h2><span class="dot" style="background:#cfd6e4; box-shadow:0 0 10px rgba(207,214,228,.8)"></span>Bloom</h2>
+      <p class="sub">Neutral soft veil from lens / emulsion scatter.</p>
+    </div>
+
+    <div class="group" id="g-stock">
+      <h2><span class="dot" style="background:#7fc8a8; box-shadow:0 0 10px rgba(127,200,168,.8)"></span>Film stock</h2>
+      <p class="sub">20 legendary emulsions. Picking one also sets a matching grain (and halation for CineStill).</p>
+      <div class="stocks" id="stocks"></div>
+      <div id="stockdesc">No film simulation — digital original.</div>
+      <div id="stocksliders"></div>
+    </div>
+
+    <div class="group" id="g-finish">
+      <h2><span class="dot" style="background:#e8b46a; box-shadow:0 0 10px rgba(232,180,106,.8)"></span>Finishing</h2>
+    </div>
+
+  </aside>
+</main>
+
+<script>
+"use strict";
+
+/* ============================== Film stocks ============================== */
+/* temp: warm(+)/cool(-) · gt: green/magenta tint · con: contrast · sat: saturation
+   gam: per-channel gamma · sh/hi: shadow & highlight tint multipliers
+   fade: black lift · bw: monochrome · grain: 0..1 suggested
+   hal: {str,hue} suggested halation override                                  */
+const IDENTITY = { temp:0, gt:0, con:1, sat:1, gam:[1,1,1], sh:[1,1,1], hi:[1,1,1], fade:0, bw:0 };
+const STOCKS = [
+  { name:"Kodak Portra 400", type:"neg", grain:.30,
+    p:{ temp:.12, gt:0, con:.95, sat:.92, gam:[1,1,1.02], sh:[1.01,1,.99], hi:[1.03,1.01,.97], fade:.03, bw:0 },
+    desc:"The portrait king. Warm, forgiving, creamy skin tones and soft contrast." },
+  { name:"Kodak Portra 160", type:"neg", grain:.20,
+    p:{ temp:.08, gt:0, con:.90, sat:.85, gam:[1,1,1.02], sh:[1.01,1,.99], hi:[1.02,1.01,.98], fade:.04, bw:0 },
+    desc:"Portra's gentler sibling — even softer, pastel color in bright light." },
+  { name:"Kodak Ektar 100", type:"neg", grain:.12,
+    p:{ temp:.08, gt:0, con:1.15, sat:1.30, gam:[.96,1,1.02], sh:[1.02,.99,.98], hi:[1.02,1,.98], fade:0, bw:0 },
+    desc:"\"World's finest grain\" color negative. Ultra-vivid, punchy reds." },
+  { name:"Kodak Gold 200", type:"neg", grain:.35,
+    p:{ temp:.22, gt:.04, con:1.02, sat:1.08, gam:[.97,.99,1.06], sh:[1.03,1.01,.96], hi:[1.05,1.02,.94], fade:.02, bw:0 },
+    desc:"The golden look of family albums — honeyed highlights, nostalgic warmth." },
+  { name:"Kodachrome 64", type:"slide", grain:.25,
+    p:{ temp:.05, gt:0, con:1.20, sat:1.12, gam:[.95,1,1.03], sh:[1,.99,.99], hi:[1.02,1,.96], fade:0, bw:0 },
+    desc:"Paul Simon's favorite. Rich reds, deep blacks, archival National-Geographic color." },
+  { name:"Ektachrome E100", type:"slide", grain:.15,
+    p:{ temp:-.05, gt:0, con:1.10, sat:1.05, gam:[1,1,.99], sh:[1,1,1], hi:[.99,1,1.02], fade:0, bw:0 },
+    desc:"Clean, neutral-cool slide film. Crisp whites and faithful color." },
+  { name:"Kodak Tri-X 400", type:"bw", grain:.60,
+    p:{ temp:0, gt:0, con:1.18, sat:1, gam:[1,1,1], sh:[1,1,1], hi:[1,1,1], fade:.01, bw:1 },
+    desc:"The most famous B&W ever. Gritty, punchy photojournalism colors-be-damned." },
+  { name:"Kodak T-Max 3200", type:"bw", grain:.85,
+    p:{ temp:0, gt:0, con:1.05, sat:1, gam:[1,1,1], sh:[1,1,1], hi:[1,1,1], fade:.03, bw:1 },
+    desc:"Available-light legend. Huge expressive grain, smoky midtones." },
+  { name:"Vision3 500T", type:"cine", grain:.35,
+    p:{ temp:-.18, gt:0, con:.85, sat:.90, gam:[1,1,1.01], sh:[.99,1,1.02], hi:[1,1,1.01], fade:.06, bw:0 },
+    desc:"Hollywood's tungsten workhorse. Flat, cool, massive highlight latitude." },
+  { name:"CineStill 800T", type:"cine", grain:.40, hal:{ str:65, hue:8 },
+    p:{ temp:-.22, gt:0, con:.90, sat:.95, gam:[1,1,1.01], sh:[.99,1,1.03], hi:[1.02,1,1], fade:.05, bw:0 },
+    desc:"Vision3 with the anti-halation layer stripped — neon nights and glowing red halos." },
+  { name:"Fuji Velvia 50", type:"slide", grain:.10,
+    p:{ temp:0, gt:0, con:1.28, sat:1.45, gam:[.97,.98,1], sh:[.99,1,1.02], hi:[1,1,.99], fade:0, bw:0 },
+    desc:"Landscape dynamite. Hyper-saturated greens and magentas, inky shadows." },
+  { name:"Fuji Provia 100F", type:"slide", grain:.12,
+    p:{ temp:-.04, gt:0, con:1.10, sat:1.10, gam:[1,1,1], sh:[1,1,1.01], hi:[1,1,1], fade:0, bw:0 },
+    desc:"The balanced pro slide — vivid but honest, slightly cool." },
+  { name:"Fuji Astia 100F", type:"slide", grain:.12,
+    p:{ temp:.02, gt:0, con:.92, sat:.95, gam:[1,1,1], sh:[1,1,1], hi:[1.02,1,.99], fade:.02, bw:0 },
+    desc:"The soft slide for fashion — low contrast, delicate skin." },
+  { name:"Fuji Superia 400", type:"neg", grain:.40,
+    p:{ temp:.05, gt:.08, con:1.05, sat:1.10, gam:[.99,.97,1.02], sh:[.98,1.02,1], hi:[1,1.01,1], fade:.02, bw:0 },
+    desc:"The 90s drugstore look — lively greens, cyan skies, everyday snapshots." },
+  { name:"Fuji Pro 400H", type:"neg", grain:.25,
+    p:{ temp:-.02, gt:.05, con:.88, sat:.85, gam:[1,1,1], sh:[.99,1.01,1.01], hi:[.98,1.02,1.01], fade:.05, bw:0 },
+    desc:"Discontinued and mourned. Airy, minty pastels beloved by wedding shooters." },
+  { name:"Fuji Eterna 250D", type:"cine", grain:.30,
+    p:{ temp:0, gt:0, con:.80, sat:.82, gam:[1,1,1], sh:[1,1,1.01], hi:[1,1,1.01], fade:.08, bw:0 },
+    desc:"Fuji's cinema stock — ultra-flat, muted, made for grading." },
+  { name:"Ilford HP5 Plus", type:"bw", grain:.50,
+    p:{ temp:0, gt:0, con:1.08, sat:1, gam:[1,1,1], sh:[1,1,1], hi:[1,1,1], fade:.02, bw:1 },
+    desc:"Britain's do-everything B&W. Forgiving, classic mid-contrast grain." },
+  { name:"Ilford Pan F 50", type:"bw", grain:.08,
+    p:{ temp:0, gt:0, con:1.15, sat:1, gam:[1,1,1], sh:[1,1,1], hi:[1,1,1], fade:0, bw:1 },
+    desc:"Glass-smooth slow B&W — near-grainless, etched detail." },
+  { name:"Agfa Vista 200", type:"neg", grain:.30,
+    p:{ temp:.18, gt:0, con:1.10, sat:1.18, gam:[.96,1,1.04], sh:[1.02,.99,.97], hi:[1.03,1,.97], fade:.01, bw:0 },
+    desc:"Cheap, cheerful, red-loving. The Lomography crowd's favorite sunset film." },
+  { name:"Polaroid 600", type:"inst", grain:.35,
+    p:{ temp:.06, gt:-.03, con:.78, sat:.78, gam:[1,1,.97], sh:[1,1,1.03], hi:[1.04,1.02,.96], fade:.12, bw:0 },
+    desc:"Instant nostalgia — lifted blacks, creamy faded highlights." },
+];
+const TYPE_LABEL = { neg:"Color negative", slide:"Slide", bw:"B&W", cine:"Cinema", inst:"Instant" };
+
+/* ============================== Parameters ============================== */
+const DEFAULTS = {
+  halStrength:35, halThreshold:70, halRadius:45, halHue:10,
+  bloomStrength:20, bloomThreshold:80, bloomRadius:60,
+  filterAmt:100, grain:0, grainSize:1.6,
+  vignette:0, exposure:0,
+};
+const state = {
+  params: { ...DEFAULTS },
+  stock: null,          // null = no film sim
+  bypass: false,
+  glowOnly: false,
+};
+
+/* ============================== Shaders ============================== */
+const VERT = `#version 300 es
+out vec2 vUv;
+void main(){
+  vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+  vUv = p;
+  gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+}`;
+
+const FRAG_BRIGHT = `#version 300 es
+precision highp float;
+in vec2 vUv; out vec4 outColor;
+uniform sampler2D uTex;
+uniform float uThreshold;
+void main(){
+  vec3 c = texture(uTex, vUv).rgb;
+  float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+  float knee = max(uThreshold * 0.5, 1e-4);
+  float soft = clamp(l - uThreshold + knee, 0.0, 2.0 * knee);
+  soft = soft * soft / (4.0 * knee);
+  float w = max(soft, l - uThreshold) / max(l, 1e-4);
+  outColor = vec4(c * max(w, 0.0), 1.0);
+}`;
+
+const FRAG_BLUR = `#version 300 es
+precision highp float;
+in vec2 vUv; out vec4 outColor;
+uniform sampler2D uTex;
+uniform vec2 uOffset;
+void main(){
+  vec3 c = texture(uTex, vUv).rgb * 0.227027;
+  c += (texture(uTex, vUv + uOffset      ).rgb + texture(uTex, vUv - uOffset      ).rgb) * 0.1945946;
+  c += (texture(uTex, vUv + uOffset * 2.0).rgb + texture(uTex, vUv - uOffset * 2.0).rgb) * 0.1216216;
+  c += (texture(uTex, vUv + uOffset * 3.0).rgb + texture(uTex, vUv - uOffset * 3.0).rgb) * 0.054054;
+  c += (texture(uTex, vUv + uOffset * 4.0).rgb + texture(uTex, vUv - uOffset * 4.0).rgb) * 0.016216;
+  outColor = vec4(c, 1.0);
+}`;
+
+const FRAG_COMPOSITE = `#version 300 es
+precision highp float;
+in vec2 vUv; out vec4 outColor;
+uniform sampler2D uImage, uHal, uBloom;
+uniform float uExposure, uBypass, uGlowOnly;
+uniform float uHalStrength, uBloomStrength;
+uniform vec3  uHalColor;
+uniform float uTemp, uTintG, uCon, uSat, uFade, uBW, uFilterAmt;
+uniform vec3  uGamma, uShTint, uHiTint;
+uniform float uGrain, uGrainSize, uVig, uSeed;
+uniform vec2  uRes;
+
+float luma(vec3 c){ return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
+float hash(vec2 p){
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+
+vec3 filmGrade(vec3 c){
+  c.r *= 1.0 + uTemp * 0.30;
+  c.b *= 1.0 - uTemp * 0.30;
+  c.g *= 1.0 + uTintG * 0.20;
+  c = clamp(c, 0.0, 1.0);
+  c = clamp((c - 0.45) * uCon + 0.45, 0.0, 1.0);          // pivot contrast
+  c = pow(c, uGamma);                                      // per-channel curve
+  c = vec3(uFade * 0.85) + c * (1.0 - uFade);              // black lift / fade
+  float l = luma(c);
+  c = mix(vec3(l), c, uSat);                               // saturation
+  c = mix(c, vec3(luma(c)), uBW);                          // monochrome
+  float l2 = luma(c);
+  vec3 tint = mix(uShTint, uHiTint, smoothstep(0.15, 0.85, l2));
+  return clamp(c * tint, 0.0, 1.0);                        // split toning
+}
+
+void main(){
+  vec3 src = texture(uImage, vUv).rgb;
+  if (uBypass > 0.5){ outColor = vec4(src, 1.0); return; }
+
+  vec3 base = clamp(src * exp2(uExposure), 0.0, 1.0);
+  vec3 c = mix(base, filmGrade(base), uFilterAmt);
+
+  // halation: luminance of the blurred bright pass, tinted red-orange.
+  // on B&W stocks the dye layers are gone, so the halo goes neutral too.
+  float halLum = luma(texture(uHal, vUv).rgb);
+  vec3 halColor = mix(uHalColor, vec3(luma(uHalColor)), uBW * uFilterAmt);
+  vec3 h = clamp(halLum * halColor * uHalStrength, 0.0, 1.0);
+  c = 1.0 - (1.0 - c) * (1.0 - h);                         // screen blend
+
+  vec3 b = clamp(texture(uBloom, vUv).rgb * uBloomStrength, 0.0, 1.0);
+  c = 1.0 - (1.0 - c) * (1.0 - b);
+
+  if (uGlowOnly > 0.5){ outColor = vec4(h + b, 1.0); return; }
+
+  // grain: monochrome, strongest in midtones like real silver/dye grain
+  float l = luma(c);
+  vec2 gp = floor(gl_FragCoord.xy / uGrainSize);
+  float n = hash(gp + vec2(uSeed, uSeed * 1.7)) - 0.5;
+  c += n * uGrain * mix(0.25, 1.0, 4.0 * l * (1.0 - l));
+
+  // vignette
+  vec2 q = vUv - 0.5; q.x *= uRes.x / uRes.y;
+  c *= 1.0 - uVig * smoothstep(0.30, 0.85, length(q));
+
+  outColor = vec4(clamp(c, 0.0, 1.0), 1.0);
+}`;
+
+/* ============================== WebGL setup ============================== */
+const canvas = document.getElementById("gl");
+const gl = canvas.getContext("webgl2", { preserveDrawingBuffer: true });
+if (!gl) {
+  document.getElementById("glerror").style.display = "flex";
+  throw new Error("WebGL2 unavailable");
+}
+gl.bindVertexArray(gl.createVertexArray());
+
+function compile(type, src){
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS))
+    throw new Error(gl.getShaderInfoLog(s));
+  return s;
+}
+function program(fragSrc){
+  const p = gl.createProgram();
+  gl.attachShader(p, compile(gl.VERTEX_SHADER, VERT));
+  gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fragSrc));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS))
+    throw new Error(gl.getProgramInfoLog(p));
+  p._uni = {};
+  return p;
+}
+function uni(p, name){
+  if (!(name in p._uni)) p._uni[name] = gl.getUniformLocation(p, name);
+  return p._uni[name];
+}
+const progBright = program(FRAG_BRIGHT);
+const progBlur = program(FRAG_BLUR);
+const progComp = program(FRAG_COMPOSITE);
+
+function makeTex(w, h){
+  const t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  return t;
+}
+function makeTarget(w, h){
+  const tex = makeTex(w, h);
+  const fbo = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  return { fbo, tex, w, h };
+}
+
+let imageTex = null, imgW = 0, imgH = 0;
+let targets = null; // { hw, hh, halA, halB, blmA, blmB }
+
+function setupTargets(w, h){
+  if (targets) for (const k of ["halA","halB","blmA","blmB"]) {
+    gl.deleteFramebuffer(targets[k].fbo);
+    gl.deleteTexture(targets[k].tex);
+  }
+  const hw = Math.max(1, Math.round(w / 2)), hh = Math.max(1, Math.round(h / 2));
+  targets = {
+    hw, hh,
+    halA: makeTarget(hw, hh), halB: makeTarget(hw, hh),
+    blmA: makeTarget(hw, hh), blmB: makeTarget(hw, hh),
+  };
+}
+
+function setRenderSize(w, h){
+  canvas.width = w;
+  canvas.height = h;
+  setupTargets(w, h);
+}
+
+function uploadImage(source, w, h){
+  if (imageTex) gl.deleteTexture(imageTex);
+  imgW = w; imgH = h;
+  imageTex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, imageTex);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, source);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  const PREVIEW_MAX = 1920;
+  const s = Math.min(1, PREVIEW_MAX / Math.max(w, h));
+  setRenderSize(Math.round(w * s), Math.round(h * s));
+  scheduleRender();
+}
+
+/* ============================== Rendering ============================== */
+function draw(){ gl.drawArrays(gl.TRIANGLES, 0, 3); }
+
+function bindTex(unit, tex){
+  gl.activeTexture(gl.TEXTURE0 + unit);
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+}
+
+// bright pass + iterative separable gaussian; result lands in texture A
+function glowChain(A, B, threshold, radius){
+  const { hw, hh } = targets;
+  gl.viewport(0, 0, hw, hh);
+
+  gl.useProgram(progBright);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, A.fbo);
+  bindTex(0, imageTex);
+  gl.uniform1i(uni(progBright, "uTex"), 0);
+  gl.uniform1f(uni(progBright, "uThreshold"), threshold);
+  draw();
+
+  gl.useProgram(progBlur);
+  gl.uniform1i(uni(progBlur, "uTex"), 0);
+  const iters = 2 + Math.round((radius / 100) * 3);     // 2..5
+  const spread = 0.6 + (radius / 100) * 2.2;            // px per tap (half-res)
+  for (let i = 0; i < iters; i++){
+    const o = spread * (i + 1);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, B.fbo);
+    bindTex(0, A.tex);
+    gl.uniform2f(uni(progBlur, "uOffset"), o / hw, 0);
+    draw();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, A.fbo);
+    bindTex(0, B.tex);
+    gl.uniform2f(uni(progBlur, "uOffset"), 0, o / hh);
+    draw();
+  }
+  return A.tex;
+}
+
+function halHueColor(hue){ // hue in degrees 0..60, full-sat warm tint
+  const h = hue / 60;
+  return [1, h * 0.55, Math.max(0, h - 0.7) * 0.25];
+}
+
+function render(){
+  if (!imageTex || !targets) return;
+  const P = state.params;
+  const S = state.stock ? state.stock.p : IDENTITY;
+
+  const halTex = glowChain(targets.halA, targets.halB, P.halThreshold / 100, P.halRadius);
+  const blmTex = glowChain(targets.blmA, targets.blmB, P.bloomThreshold / 100, P.bloomRadius);
+
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, canvas.width, canvas.height);
+  gl.useProgram(progComp);
+  bindTex(0, imageTex); gl.uniform1i(uni(progComp, "uImage"), 0);
+  bindTex(1, halTex);   gl.uniform1i(uni(progComp, "uHal"), 1);
+  bindTex(2, blmTex);   gl.uniform1i(uni(progComp, "uBloom"), 2);
+
+  gl.uniform1f(uni(progComp, "uExposure"), P.exposure);
+  gl.uniform1f(uni(progComp, "uBypass"), state.bypass ? 1 : 0);
+  gl.uniform1f(uni(progComp, "uGlowOnly"), state.glowOnly ? 1 : 0);
+  gl.uniform1f(uni(progComp, "uHalStrength"), (P.halStrength / 100) * 2.2);
+  gl.uniform3fv(uni(progComp, "uHalColor"), halHueColor(P.halHue));
+  gl.uniform1f(uni(progComp, "uBloomStrength"), (P.bloomStrength / 100) * 1.6);
+
+  gl.uniform1f(uni(progComp, "uTemp"), S.temp);
+  gl.uniform1f(uni(progComp, "uTintG"), S.gt);
+  gl.uniform1f(uni(progComp, "uCon"), S.con);
+  gl.uniform1f(uni(progComp, "uSat"), S.sat);
+  gl.uniform1f(uni(progComp, "uFade"), S.fade);
+  gl.uniform1f(uni(progComp, "uBW"), S.bw);
+  gl.uniform3fv(uni(progComp, "uGamma"), S.gam);
+  gl.uniform3fv(uni(progComp, "uShTint"), S.sh);
+  gl.uniform3fv(uni(progComp, "uHiTint"), S.hi);
+  gl.uniform1f(uni(progComp, "uFilterAmt"), state.stock ? P.filterAmt / 100 : 0);
+
+  gl.uniform1f(uni(progComp, "uGrain"), (P.grain / 100) * 0.28);
+  gl.uniform1f(uni(progComp, "uGrainSize"), P.grainSize * (canvas.width / Math.min(canvas.width, 1280)));
+  gl.uniform1f(uni(progComp, "uVig"), (P.vignette / 100) * 0.9);
+  gl.uniform1f(uni(progComp, "uSeed"), 7.31);
+  gl.uniform2f(uni(progComp, "uRes"), canvas.width, canvas.height);
+  draw();
+}
+
+let pending = false;
+function scheduleRender(){
+  if (pending) return;
+  pending = true;
+  requestAnimationFrame(() => { pending = false; render(); });
+}
+
+/* ============================== UI: sliders ============================== */
+function addSlider(parent, def){
+  const wrap = document.createElement("div");
+  wrap.className = "slider";
+  const fmt = def.fmt || (v => Math.round(v));
+  wrap.innerHTML =
+    `<div class="row"><span>${def.label}</span><span class="val"></span></div>` +
+    `<input type="range" min="${def.min}" max="${def.max}" step="${def.step || 1}">`;
+  const input = wrap.querySelector("input");
+  const val = wrap.querySelector(".val");
+  input.value = state.params[def.id];
+  val.textContent = fmt(state.params[def.id]);
+  input.addEventListener("input", () => {
+    state.params[def.id] = parseFloat(input.value);
+    val.textContent = fmt(state.params[def.id]);
+    if (def.onchange) def.onchange();
+    scheduleRender();
+  });
+  parent.appendChild(wrap);
+  sliderEls[def.id] = { input, val, fmt };
+}
+const sliderEls = {};
+function setParam(id, v){
+  state.params[id] = v;
+  const el = sliderEls[id];
+  if (el) { el.input.value = v; el.val.textContent = el.fmt(v); }
+}
+
+const gHal = document.getElementById("g-halation");
+const gBloom = document.getElementById("g-bloom");
+const gStockSliders = document.getElementById("stocksliders");
+const gFinish = document.getElementById("g-finish");
+const swatch = document.getElementById("halswatch");
+
+function updateSwatch(){
+  const [r, g, b] = halHueColor(state.params.halHue);
+  swatch.style.background = `rgb(${r * 255 | 0}, ${g * 255 | 0}, ${b * 255 | 0})`;
+  swatch.style.boxShadow = `0 0 14px rgba(${r * 255 | 0}, ${g * 255 | 0}, ${b * 255 | 0}, 0.7)`;
+}
+
+addSlider(gHal, { id:"halStrength", label:"Strength", min:0, max:100 });
+addSlider(gHal, { id:"halThreshold", label:"Threshold (what counts as a light source)", min:0, max:100 });
+addSlider(gHal, { id:"halRadius", label:"Radius (spread)", min:0, max:100 });
+addSlider(gHal, { id:"halHue", label:"Hue (deep red → orange)", min:0, max:60, onchange:updateSwatch });
+updateSwatch();
+
+addSlider(gBloom, { id:"bloomStrength", label:"Strength", min:0, max:100 });
+addSlider(gBloom, { id:"bloomThreshold", label:"Threshold", min:0, max:100 });
+addSlider(gBloom, { id:"bloomRadius", label:"Radius", min:0, max:100 });
+
+const glowOnly = document.createElement("label");
+glowOnly.className = "check";
+glowOnly.innerHTML = `<input type="checkbox"> Show glow layer only`;
+glowOnly.querySelector("input").addEventListener("change", e => {
+  state.glowOnly = e.target.checked;
+  scheduleRender();
+});
+gBloom.appendChild(glowOnly);
+
+addSlider(gStockSliders, { id:"filterAmt", label:"Filter intensity", min:0, max:100 });
+
+addSlider(gFinish, { id:"grain", label:"Grain amount", min:0, max:100 });
+addSlider(gFinish, { id:"grainSize", label:"Grain size", min:1, max:4, step:0.1, fmt:v => v.toFixed(1) });
+addSlider(gFinish, { id:"vignette", label:"Vignette", min:0, max:100 });
+addSlider(gFinish, { id:"exposure", label:"Exposure (EV)", min:-2, max:2, step:0.05, fmt:v => (v > 0 ? "+" : "") + v.toFixed(2) });
+
+/* ============================== UI: film stocks ============================== */
+const stocksEl = document.getElementById("stocks");
+const stockDesc = document.getElementById("stockdesc");
+let chipEls = [];
+
+function selectStock(idx){ // -1 = none
+  state.stock = idx >= 0 ? STOCKS[idx] : null;
+  chipEls.forEach((c, i) => c.classList.toggle("active", i - 1 === idx));
+  if (state.stock) {
+    stockDesc.textContent = state.stock.desc;
+    setParam("grain", Math.round(state.stock.grain * 100));
+    setParam("grainSize", +(1 + state.stock.grain * 1.6).toFixed(1));
+    if (state.stock.hal) {
+      setParam("halStrength", state.stock.hal.str);
+      setParam("halHue", state.stock.hal.hue);
+      updateSwatch();
+    }
+  } else {
+    stockDesc.textContent = "No film simulation — digital original.";
+  }
+  scheduleRender();
+}
+
+function addChip(label, sub, subClass, idx){
+  const c = document.createElement("div");
+  c.className = "chip";
+  c.innerHTML = `<div class="nm">${label}</div><div class="tp ${subClass}">${sub}</div>`;
+  c.title = idx >= 0 ? STOCKS[idx].desc : "Turn off film simulation";
+  c.addEventListener("click", () => selectStock(idx));
+  stocksEl.appendChild(c);
+  chipEls.push(c);
+}
+addChip("None / Digital", "Original", "bw", -1);
+STOCKS.forEach((s, i) => addChip(s.name, TYPE_LABEL[s.type], s.type, i));
+chipEls[0].classList.add("active");
+
+/* ============================== Sample image ============================== */
+/* A procedural night street — lots of point light sources, ideal for halation. */
+function makeSampleScene(){
+  const w = 1600, h = 1000;
+  const cv = document.createElement("canvas");
+  cv.width = w; cv.height = h;
+  const x = cv.getContext("2d");
+
+  const sky = x.createLinearGradient(0, 0, 0, h);
+  sky.addColorStop(0, "#060a16"); sky.addColorStop(0.65, "#0b1020"); sky.addColorStop(1, "#05070c");
+  x.fillStyle = sky; x.fillRect(0, 0, w, h);
+
+  // stars
+  for (let i = 0; i < 130; i++){
+    x.fillStyle = `rgba(255,255,255,${0.25 + Math.random() * 0.55})`;
+    x.fillRect(Math.random() * w, Math.random() * h * 0.5, 1.4, 1.4);
+  }
+  // moon
+  x.fillStyle = "#f5f1e4";
+  x.beginPath(); x.arc(w * 0.84, h * 0.14, 34, 0, 7); x.fill();
+
+  // building silhouettes with lit windows
+  const horizon = h * 0.62;
+  let bx = 0;
+  while (bx < w){
+    const bw = 90 + Math.random() * 150;
+    const bh = 110 + Math.random() * 250;
+    x.fillStyle = "#0a0d14";
+    x.fillRect(bx, horizon - bh, bw, bh);
+    for (let wy = horizon - bh + 16; wy < horizon - 14; wy += 26)
+      for (let wx = bx + 12; wx < bx + bw - 14; wx += 24)
+        if (Math.random() < 0.32){
+          x.fillStyle = Math.random() < 0.7 ? "#ffd98a" : "#cfe4ff";
+          x.fillRect(wx, wy, 9, 13);
+        }
+    bx += bw + 6 + Math.random() * 30;
+  }
+
+  // road
+  const road = x.createLinearGradient(0, horizon, 0, h);
+  road.addColorStop(0, "#11141c"); road.addColorStop(1, "#070910");
+  x.fillStyle = road; x.fillRect(0, horizon, w, h - horizon);
+
+  // street lamps + reflections + neon sign
+  const lampY = horizon - 130;
+  for (let i = 0; i < 5; i++){
+    const lx = w * (0.1 + i * 0.2);
+    x.strokeStyle = "#181c26"; x.lineWidth = 7;
+    x.beginPath(); x.moveTo(lx, horizon); x.lineTo(lx, lampY); x.stroke();
+    x.fillStyle = "#fffbe8";
+    x.beginPath(); x.arc(lx, lampY, 13, 0, 7); x.fill();
+    const refl = x.createLinearGradient(0, horizon, 0, h);
+    refl.addColorStop(0, "rgba(255,246,210,0.35)"); refl.addColorStop(1, "rgba(255,246,210,0)");
+    x.fillStyle = refl;
+    x.fillRect(lx - 7, horizon + 4, 14, h - horizon - 20);
+  }
+  x.fillStyle = "#ff5d8f";
+  x.font = "bold 44px ui-sans-serif, sans-serif";
+  x.fillText("OPEN", w * 0.36, horizon - 180);
+  x.fillStyle = "#6fe3ff";
+  x.fillRect(w * 0.36 - 14, horizon - 222, 158, 5);
+
+  // car headlights
+  x.fillStyle = "#ffffff";
+  x.beginPath(); x.arc(w * 0.62, horizon + 60, 9, 0, 7); x.fill();
+  x.beginPath(); x.arc(w * 0.655, horizon + 60, 9, 0, 7); x.fill();
+
+  return cv;
+}
+
+/* ============================== Import / export ============================== */
+function loadFromFile(file){
+  if (!file || !file.type.startsWith("image/")) return;
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => {
+    URL.revokeObjectURL(url);
+    fullSource = img;
+    uploadImage(img, img.naturalWidth, img.naturalHeight);
+  };
+  img.src = url;
+}
+
+let fullSource = null; // Image or canvas at native resolution, for export
+
+document.getElementById("file").addEventListener("change", e => loadFromFile(e.target.files[0]));
+
+const stage = document.getElementById("stage");
+["dragenter", "dragover"].forEach(ev => stage.addEventListener(ev, e => {
+  e.preventDefault(); stage.classList.add("dragover");
+}));
+["dragleave", "drop"].forEach(ev => stage.addEventListener(ev, e => {
+  e.preventDefault(); stage.classList.remove("dragover");
+}));
+stage.addEventListener("drop", e => loadFromFile(e.dataTransfer.files[0]));
+window.addEventListener("paste", e => {
+  for (const item of e.clipboardData.items)
+    if (item.type.startsWith("image/")) { loadFromFile(item.getAsFile()); return; }
+});
+
+document.getElementById("export").addEventListener("click", () => {
+  if (!fullSource) return;
+  const max = Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE), 8192);
+  const s = Math.min(1, max / Math.max(imgW, imgH));
+  const ew = Math.round(imgW * s), eh = Math.round(imgH * s);
+  const pw = canvas.width, ph = canvas.height;
+  setRenderSize(ew, eh);     // image texture is already native-res
+  render();
+  canvas.toBlob(blob => {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    const stock = state.stock ? "-" + state.stock.name.toLowerCase().replace(/[^a-z0-9]+/g, "-") : "";
+    a.download = `halation${stock}.png`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    setRenderSize(pw, ph);   // restore preview
+    render();
+  }, "image/png");
+});
+
+/* ============================== Compare & reset ============================== */
+const compareBtn = document.getElementById("compare");
+function setBypass(on){
+  if (state.bypass === on) return;
+  state.bypass = on;
+  compareBtn.style.borderColor = on ? "var(--ember)" : "";
+  scheduleRender();
+}
+compareBtn.addEventListener("pointerdown", () => setBypass(true));
+window.addEventListener("pointerup", () => setBypass(false));
+window.addEventListener("keydown", e => {
+  if (e.key.toLowerCase() === "c" && !e.repeat && e.target.tagName !== "INPUT") setBypass(true);
+});
+window.addEventListener("keyup", e => {
+  if (e.key.toLowerCase() === "c") setBypass(false);
+});
+
+document.getElementById("reset").addEventListener("click", () => {
+  for (const [k, v] of Object.entries(DEFAULTS)) setParam(k, v);
+  updateSwatch();
+  selectStock(-1);
+});
+
+/* ============================== Boot ============================== */
+const sample = makeSampleScene();
+fullSource = sample;
+uploadImage(sample, sample.width, sample.height);
+</script>
+</body>
+</html>

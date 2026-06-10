@@ -1,4 +1,30 @@
-# Render Brief — Architectural Prompt Maker
+# Single-file web apps
+
+## Halation Lab — Film Halation & Stock Simulation Editor (`halation.html`)
+
+A real-time, WebGL-powered photo editor for film-style glow. Open `halation.html`
+in any modern browser — no build step, no dependencies, everything stays local.
+
+- **Physically inspired halation** — bright light passes through the emulsion,
+  reflects off the film base, and re-exposes the deepest (red-sensitive) layer,
+  producing the classic red-orange halo. Tune strength, threshold, radius, and
+  hue (deep red → orange) independently. A built-in illustrated explainer shows
+  the film cross-section and why CineStill 800T glows the way it does.
+- **Bloom** — separate neutral lens/emulsion scatter veil with its own strength,
+  threshold, and radius.
+- **20 famous film stocks** — Kodak Portra 400/160, Ektar 100, Gold 200,
+  Kodachrome 64, Ektachrome E100, Tri-X 400, T-Max 3200, Vision3 500T,
+  CineStill 800T, Fuji Velvia 50, Provia 100F, Astia 100F, Superia 400,
+  Pro 400H, Eterna 250D, Ilford HP5 Plus, Pan F 50, Agfa Vista 200, and
+  Polaroid 600 — each with its own color response, contrast curve, fade, and
+  matched grain. Adjustable filter intensity, grain amount/size, vignette,
+  exposure.
+- **Workflow** — import via button, drag & drop, or clipboard paste; hold-to-compare
+  against the original (or hold <kbd>C</kbd>); "glow layer only" inspection view;
+  full-resolution PNG export. Ships with a procedural night-street scene full of
+  light sources so you can play immediately.
+
+## Render Brief — Architectural Prompt Maker (`index.html`)
 
 A single-file web app for composing world-class, presentation-ready architectural
 render prompts. Add style and model reference images, click through the curated
