@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Planar Table — 3D MTG Tabletop</title>
+<style>
+  :root {
+    --bg: #0b0d10;
+    --panel: rgba(18, 21, 26, 0.92);
+    --panel-2: rgba(28, 32, 40, 0.95);
+    --line: #2c313b;
+    --txt: #e9e7e2;
+    --muted: #97938c;
+    --gold: #d4af6a;
+    --teal: #5ecfc4;
+    --red: #e26a5a;
+    --radius: 12px;
+    font-size: 15px;
+  }
+  * { box-sizing: border-box; user-select: none; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg);
+    color: var(--txt); font-family: "Inter", -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  canvas { display: block; }
+  button {
+    background: var(--panel-2); color: var(--txt); border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px 14px; font: inherit; cursor: pointer;
+    transition: border-color .15s, background .15s, transform .05s;
+  }
+  button:hover { border-color: var(--gold); }
+  button:active { transform: translateY(1px); }
+  button.primary { background: linear-gradient(180deg, #c9a35e, #a87e3c); color: #16130c; font-weight: 600; border: none; }
+  button.danger { border-color: var(--red); color: var(--red); }
+  button:disabled { opacity: .4; cursor: default; }
+  input, select {
+    background: #11141a; color: var(--txt); border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px 10px; font: inherit; width: 100%;
+  }
+  .hidden { display: none !important; }
+
+  /* ---------- lobby ---------- */
+  #lobby {
+    position: fixed; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center;
+    background: radial-gradient(1100px 700px at 60% -10%, #1a1e26 0%, var(--bg) 60%);
+  }
+  .lobby-card {
+    width: min(860px, 94vw); background: var(--panel); border: 1px solid var(--line);
+    border-radius: 16px; padding: 26px 30px; box-shadow: 0 24px 70px rgba(0,0,0,.55);
+  }
+  .lobby-card h1 { margin: 0 0 2px; font-size: 26px; letter-spacing: .02em; }
+  .lobby-card .sub { color: var(--muted); margin-bottom: 20px; font-size: 13px; }
+  .lobby-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+  .field { margin-bottom: 12px; }
+  .field label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .14em; color: var(--muted); margin-bottom: 5px; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .avatars { display: flex; gap: 10px; }
+  .avatar-pick {
+    width: 56px; height: 56px; border-radius: 10px; border: 2px solid var(--line); cursor: pointer;
+    display: flex; align-items: center; justify-content: center; font-size: 26px; background: #11141a;
+  }
+  .avatar-pick.sel { border-color: var(--gold); box-shadow: 0 0 0 2px rgba(212,175,106,.25); }
+  .seat-list { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; min-height: 120px; background: #0f1217; }
+  .seat-list .seat-row { display: flex; justify-content: space-between; padding: 5px 2px; font-size: 14px; border-bottom: 1px dashed #20242c; }
+  .seat-list .seat-row:last-child { border-bottom: none; }
+  .tag { font-size: 11px; color: var(--gold); border: 1px solid rgba(212,175,106,.4); border-radius: 5px; padding: 1px 6px; margin-left: 6px; }
+  #lobbyError { color: var(--red); font-size: 13px; min-height: 18px; margin-top: 8px; }
+  .code-big { font-size: 30px; letter-spacing: .35em; color: var(--gold); font-weight: 700; }
+
+  /* ---------- HUD ---------- */
+  #hud { position: fixed; inset: 0; z-index: 10; pointer-events: none; }
+  #hud > * { pointer-events: auto; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
+
+  #phaseBar {
+    position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 3px; padding: 6px 8px; align-items: center;
+  }
+  .phase-dot { padding: 4px 9px; border-radius: 6px; font-size: 11px; color: var(--muted); letter-spacing: .04em; }
+  .phase-dot.active { background: var(--gold); color: #181206; font-weight: 700; }
+  #turnLabel { margin-right: 10px; font-size: 12px; color: var(--txt); }
+
+  #actionBar { position: fixed; bottom: 16px; right: 16px; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
+  #promptLine {
+    position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+    padding: 8px 18px; font-size: 14px; color: var(--gold); text-align: center;
+    pointer-events: none !important; /* sits over the hand fan — never eat card clicks */
+  }
+  #playersHud { position: fixed; top: 12px; left: 12px; display: flex; flex-direction: column; gap: 6px; }
+  .pl-chip { display: flex; align-items: center; gap: 8px; padding: 6px 12px; font-size: 13px; }
+  .pl-chip .life { font-weight: 700; color: var(--teal); min-width: 26px; text-align: right; }
+  .pl-chip.active-turn { border-color: var(--gold); }
+  .pl-chip.priority::after { content: '●'; color: var(--gold); }
+  .pl-chip .nm { max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pl-chip.lost { opacity: .45; text-decoration: line-through; }
+
+  #manaHud { position: fixed; bottom: 170px; right: 16px; display: flex; gap: 5px; padding: 6px 9px; }
+  .mana-pip { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700; color: #111; }
+
+  #log {
+    position: fixed; left: 12px; bottom: 16px; width: 300px; max-height: 200px; overflow-y: auto;
+    padding: 8px 12px; font-size: 12px; color: var(--muted); line-height: 1.5;
+    mask-image: linear-gradient(180deg, transparent, #000 18%);
+  }
+  #log .me { color: var(--teal); }
+
+  #modeHint { position: fixed; top: 12px; right: 12px; padding: 8px 12px; font-size: 12px; color: var(--muted); text-align: right; line-height: 1.6; }
+  #modeHint b { color: var(--gold); }
+
+  #weaponHud { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); display: none; gap: 8px; padding: 8px 10px; }
+  body.fps #weaponHud { display: flex; }
+  body.fps #promptLine, body.fps #actionBar { display: none; }
+  .wpn { padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+  .wpn.sel { border-color: var(--red); color: var(--txt); background: rgba(226,106,90,.12); }
+  #crosshair { position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%); color: rgba(255,255,255,.85);
+    font-size: 18px; display: none; text-shadow: 0 0 4px #000; }
+  body.fps #crosshair, body.spectator #crosshair { display: block; }
+
+  #settingsBtn { position: fixed; top: 64px; right: 12px; }
+  #settings { position: fixed; top: 104px; right: 12px; width: 270px; padding: 14px; }
+  #settings h3 { margin: 0 0 10px; font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+  #settings .field { margin-bottom: 10px; }
+
+  #toast { position: fixed; top: 60px; left: 50%; transform: translateX(-50%); padding: 8px 16px;
+    color: var(--red); font-size: 13px; opacity: 0; transition: opacity .2s; }
+  #toast.show { opacity: 1; }
+
+  #gameOver { position: fixed; inset: 0; z-index: 25; display: flex; align-items: center; justify-content: center;
+    background: rgba(5,6,8,.7); }
+  #gameOver .panel { padding: 34px 50px; text-align: center; }
+  #gameOver h2 { color: var(--gold); font-size: 30px; margin: 0 0 8px; }
+
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-thumb { background: #2a2e37; border-radius: 4px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<!-- ============================ LOBBY ============================ -->
+<div id="lobby">
+  <div class="lobby-card">
+    <h1>Planar Table</h1>
+    <div class="sub">A 3D tabletop for Magic: The Gathering — sit down, play, and (if it goes badly) throw a sandal.</div>
+
+    <div id="lobbyHome">
+      <div class="lobby-grid">
+        <div>
+          <div class="field"><label>Your name</label><input id="inName" maxlength="24" placeholder="Planeswalker" /></div>
+          <div class="field"><label>Avatar</label><div class="avatars" id="avatarPicks"></div></div>
+          <div class="field"><label>Deck</label><select id="inDeck"></select></div>
+        </div>
+        <div>
+          <div class="field"><label>Host a table</label>
+            <div class="row">
+              <select id="inSeats" style="width:130px">
+                <option value="2">2 seats</option><option value="3">3 seats</option>
+                <option value="4">4 seats</option><option value="5">5 seats</option>
+                <option value="6">6 seats</option>
+              </select>
+              <button class="primary" id="btnHost" style="flex:1">Host game</button>
+            </div>
+          </div>
+          <div class="field"><label>Join a table</label>
+            <div class="row">
+              <input id="inCode" maxlength="4" placeholder="CODE" style="width:130px; text-transform:uppercase" />
+              <button id="btnJoin" style="flex:1">Join as player</button>
+            </div>
+            <div class="row" style="margin-top:8px"><button id="btnSpectate" style="flex:1">Join as spectator (free-fly)</button></div>
+          </div>
+        </div>
+      </div>
+      <div id="lobbyError"></div>
+    </div>
+
+    <div id="lobbyRoom" class="hidden">
+      <div class="lobby-grid">
+        <div>
+          <div class="field"><label>Room code — share with friends</label><div class="code-big" id="roomCode">----</div></div>
+          <div class="field"><label>Table</label><div id="roomMeta" style="color:var(--muted); font-size:13px"></div></div>
+          <div class="row" style="margin-top:14px">
+            <button class="primary hidden" id="btnStart">Start game</button>
+            <button class="hidden" id="btnAddBot">Add practice bot</button>
+          </div>
+        </div>
+        <div>
+          <div class="field"><label>Seated players</label><div class="seat-list" id="seatList"></div></div>
+        </div>
+      </div>
+      <div id="lobbyError2" style="color:var(--red); font-size:13px; min-height:18px; margin-top:8px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================ HUD ============================ -->
+<div id="hud" class="hidden">
+  <div id="phaseBar" class="panel"><span id="turnLabel">Turn 1</span></div>
+  <div id="playersHud"></div>
+  <div id="manaHud" class="panel hidden"></div>
+  <div id="promptLine" class="panel hidden"></div>
+  <div id="actionBar"></div>
+  <div id="log" class="panel"></div>
+  <div id="modeHint" class="panel">
+    <b>Tab</b> table-antics mode &nbsp;·&nbsp; <b>1/2/3</b> gun / knife / sandal<br>
+    <b>Click</b> shoot/throw &nbsp;·&nbsp; <b>F</b> slam the table &nbsp;·&nbsp; <b>Esc</b> back to cards
+  </div>
+  <div id="weaponHud" class="panel">
+    <div class="wpn" data-w="gun">1 · Hand Cannon</div>
+    <div class="wpn" data-w="knife">2 · Throwing Knife</div>
+    <div class="wpn" data-w="sandal">3 · Sandal of Justice</div>
+    <div class="wpn" data-w="slam">F · Table Slam</div>
+  </div>
+  <div id="crosshair">+</div>
+  <button id="settingsBtn">⚙ A/V</button>
+  <div id="settings" class="panel hidden">
+    <h3>Camera & audio</h3>
+    <div class="field"><button id="btnCam" style="width:100%">📷 Camera: off</button></div>
+    <div class="field"><button id="btnMic" style="width:100%">🎙 Mic: off</button></div>
+    <div class="field"><label>Camera device</label><select id="selCam"></select></div>
+    <div class="field"><label>Microphone device</label><select id="selMic"></select></div>
+    <div class="field"><label>Speaker output</label><button id="btnDeafen" style="width:100%">🔊 Incoming audio: on</button></div>
+  </div>
+  <div id="toast"></div>
+</div>
+
+<div id="gameOver" class="hidden"><div class="panel"><h2 id="gameOverTitle">Victory</h2>
+  <div id="gameOverSub" style="color:var(--muted); margin-bottom:18px"></div>
+  <button class="primary" onclick="location.reload()">Back to lobby</button>
+</div></div>
+
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>

@@ -1,3 +1,15 @@
+# This repository
+
+- **[`mtg-tabletop/`](mtg-tabletop/)** — *Planar Table*: a 3D multiplayer browser
+  tabletop for Magic: The Gathering (three.js + WebSocket + WebRTC). Fixed
+  first-person seats, a server-authoritative MTG rules engine, webcam-faced
+  avatars, free-fly spectators, and an FPS antics mode (gun / knife / sandal /
+  table slam). See its README for setup.
+- **`index.html`** — Render Brief, a single-file architectural prompt maker
+  (documented below).
+
+---
+
 # Render Brief — Architectural Prompt Maker
 
 A single-file web app for composing world-class, presentation-ready architectural

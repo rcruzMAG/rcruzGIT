@@ -1,0 +1,23 @@
+{
+  "name": "mtg-tabletop",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "3D browser tabletop simulator focused on Magic: The Gathering — fixed first-person seats, multiplayer rooms, webcam avatars, FPS antics mode, and a core MTG rules engine.",
+  "scripts": {
+    "dev": "node server/index.js --dev",
+    "build": "vite build",
+    "start": "npm run build && node server/index.js",
+    "server": "node server/index.js",
+    "test": "node server/engine.test.js",
+    "test:visual": "node server/visual.test.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "three": "^0.175.0",
+    "ws": "^8.18.1"
+  },
+  "devDependencies": {
+    "vite": "^6.2.0"
+  }
+}
