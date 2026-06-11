@@ -157,6 +157,85 @@ function convertCard(sc) {
   return { error: `${name}: ${sc.type_line} cards are not supported yet` };
 }
 
+// ------------------------------------------------------------------ deck URLs
+
+// Turn a deck URL into decklist text. Supported hosts: Moxfield, Archidekt,
+// MTGGoldfish, TappedOut, plus any URL that serves a plain-text list.
+export async function fetchListFromUrl(raw) {
+  let url;
+  try { url = new URL(raw); } catch { throw new Error('Not a valid URL: ' + raw); }
+  const host = url.hostname.replace(/^www\./, '');
+  const get = async (u, accept = 'application/json') => {
+    const res = await fetch(u, { headers: { ...HEADERS, Accept: accept } });
+    if (!res.ok) throw new Error(`${host} responded ${res.status} — is the deck public?`);
+    return res;
+  };
+
+  if (host === 'archidekt.com') {
+    const m = url.pathname.match(/decks\/(\d+)/);
+    if (!m) throw new Error('Could not find a deck id in that Archidekt link');
+    const deck = await (await get(`https://archidekt.com/api/decks/${m[1]}/`)).json();
+    const lines = [], side = [];
+    for (const c of deck.cards || []) {
+      const name = c.card?.oracleCard?.name;
+      if (!name) continue;
+      const cats = (c.categories || []).map(s => s.toLowerCase());
+      if (cats.includes('maybeboard')) continue;
+      (cats.includes('sideboard') ? side : lines).push(`${c.quantity} ${name}`);
+    }
+    return { text: lines.join('\n') + (side.length ? '\nSideboard\n' + side.join('\n') : ''), name: deck.name };
+  }
+
+  if (host.endsWith('moxfield.com')) {
+    const m = url.pathname.match(/decks\/([\w-]+)/);
+    if (!m) throw new Error('Could not find a deck id in that Moxfield link');
+    let deck;
+    try {
+      deck = await (await get(`https://api2.moxfield.com/v3/decks/all/${m[1]}`)).json();
+    } catch {
+      deck = await (await get(`https://api.moxfield.com/v2/decks/all/${m[1]}`)).json();
+    }
+    const lines = [], side = [];
+    const eat = (board, into) => {
+      if (!board) return;
+      // v3: boards.mainboard.cards = { key: {quantity, card:{name}} } · v2: mainboard = { name: {quantity} }
+      const entries = board.cards ? Object.values(board.cards) : Object.entries(board);
+      for (const e of entries) {
+        if (Array.isArray(e)) into.push(`${e[1].quantity} ${e[0]}`);
+        else if (e.card?.name) into.push(`${e.quantity} ${e.card.name}`);
+      }
+    };
+    eat(deck.boards?.mainboard ?? deck.mainboard, lines);
+    eat(deck.boards?.sideboard ?? deck.sideboard, side);
+    if (!lines.length) throw new Error('Moxfield deck appears empty or private');
+    return { text: lines.join('\n') + (side.length ? '\nSideboard\n' + side.join('\n') : ''), name: deck.name };
+  }
+
+  if (host === 'mtggoldfish.com') {
+    const m = url.pathname.match(/deck\/(?:download\/)?(\d+)/);
+    if (!m) throw new Error('Could not find a deck id in that MTGGoldfish link');
+    let text = await (await get(`https://www.mtggoldfish.com/deck/download/${m[1]}`, 'text/plain')).text();
+    // goldfish separates the sideboard with a blank line
+    text = text.replace(/\r/g, '').replace(/\n\s*\n/, '\nSideboard\n');
+    return { text, name: null };
+  }
+
+  if (host === 'tappedout.net') {
+    url.searchParams.set('fmt', 'txt');
+    const text = (await (await get(url.href, 'text/plain')).text()).replace(/\r/g, '');
+    if (text.trimStart().startsWith('<')) throw new Error('TappedOut did not return a decklist — is the deck public?');
+    return { text: text.replace(/^Sideboard:?$/im, 'Sideboard'), name: null };
+  }
+
+  // generic: any URL that returns a plain-text list
+  const res = await get(url.href, 'text/plain');
+  const text = (await res.text()).replace(/\r/g, '');
+  if (text.trimStart().startsWith('<')) {
+    throw new Error(`${host} is not a supported deck site — paste the decklist text instead`);
+  }
+  return { text, name: null };
+}
+
 // ------------------------------------------------------------------ fetch
 
 async function fetchCollection(names) {
@@ -176,8 +255,20 @@ async function fetchCollection(names) {
   return out;
 }
 
-// Resolve a decklist text into { deck, sideboard, defs, errors }.
+// Resolve a decklist text OR a deck URL into { deck, sideboard, defs, errors, name }.
 export async function resolveDecklist(text) {
+  let deckName = null;
+  // a URL anywhere on its own line → fetch the list from the deck site
+  const urlLine = String(text).split('\n').map(s => s.trim()).find(s => /^https?:\/\/\S+$/i.test(s));
+  if (urlLine) {
+    try {
+      const fetched = await fetchListFromUrl(urlLine);
+      text = fetched.text;
+      deckName = fetched.name;
+    } catch (e) {
+      return { errors: [e.message] };
+    }
+  }
   const { main, side } = parseDecklist(text);
   if (!main.length) return { errors: ['Decklist is empty'] };
   const totalMain = main.reduce((s, e) => s + e.count, 0);
@@ -210,5 +301,5 @@ export async function resolveDecklist(text) {
   const deck = build(main);
   const sideboard = build(side);
   if (errors.length) return { errors: [...new Set(errors)] };
-  return { deck, sideboard, defs, errors: [] };
+  return { deck, sideboard, defs, errors: [], name: deckName };
 }

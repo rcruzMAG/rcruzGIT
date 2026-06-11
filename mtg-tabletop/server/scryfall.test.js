@@ -1,7 +1,7 @@
 // Scryfall importer test: decklist parsing (offline) + live resolution.
 // Run: node server/scryfall.test.js
 
-import { parseDecklist, resolveDecklist } from './scryfall.js';
+import { parseDecklist, resolveDecklist, fetchListFromUrl } from './scryfall.js';
 
 let failures = 0;
 const assert = (c, m) => { c ? console.log('  ✓ ' + m) : (failures++, console.error('  ✗ ' + m)); };
@@ -59,6 +59,23 @@ if (result.errors.length) {
   // cache hit path
   const again = await resolveDecklist('40 Mountain');
   assert(again.deck.length === 40 && !again.errors.length, 'cached re-resolution works');
+}
+
+console.log('— deck URL import (requires network) —');
+try {
+  const arch = await fetchListFromUrl('https://archidekt.com/decks/5000000');
+  const lines = arch.text.split('\n').filter(Boolean);
+  assert(lines.length > 10 && /^\d+ .+/.test(lines[0]), `Archidekt URL → decklist text (${lines.length} lines)`);
+  assert(typeof arch.name === 'string' && arch.name.length > 0, `Archidekt deck name: ${arch.name}`);
+
+  const gf = await fetchListFromUrl('https://www.mtggoldfish.com/deck/123456#paper');
+  assert(/^\d+ Delver of Secrets/m.test(gf.text), 'MTGGoldfish URL → decklist text');
+  assert(/^Sideboard$/m.test(gf.text), 'MTGGoldfish blank-line sideboard converted');
+
+  const badUrl = await resolveDecklist('https://example.com/not-a-deck');
+  assert(badUrl.errors.length > 0, 'non-deck URL reports a clear error: ' + badUrl.errors[0]);
+} catch (e) {
+  console.log('  (skipping URL checks: ' + e.message + ')');
 }
 
 console.log(failures ? `\n${failures} FAILURE(S)` : '\nAll scryfall checks passed.');

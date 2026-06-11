@@ -25,13 +25,59 @@ let mySeat = -1;
 let roomInfo = null;
 let selectedAvatar = 0;
 
+// Draw an avatar portrait on a canvas — no emoji/font dependency, so the
+// tiles render identically everywhere.
+function drawAvatarTile(canvas, preset) {
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width = 104, H = canvas.height = 104;
+  const body = '#' + preset.body.toString(16).padStart(6, '0');
+  const trim = '#' + preset.trim.toString(16).padStart(6, '0');
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#23272f'); g.addColorStop(1, '#101216');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  // torso
+  ctx.fillStyle = body;
+  ctx.beginPath(); ctx.roundRect(26, 62, 52, 46, 16); ctx.fill();
+  ctx.fillStyle = trim; ctx.fillRect(26, 62, 52, 7);
+  // head (dark screen-face like the 3D avatar)
+  ctx.fillStyle = '#1a1c22';
+  ctx.beginPath(); ctx.roundRect(31, 22, 42, 40, 7); ctx.fill();
+  ctx.strokeStyle = trim; ctx.lineWidth = 3;
+  ctx.strokeRect(33, 24, 38, 36);
+  // face
+  ctx.fillStyle = '#e9e7e2';
+  ctx.beginPath(); ctx.arc(44, 38, 3.4, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.arc(60, 38, 3.4, 0, 7); ctx.fill();
+  ctx.strokeStyle = '#e9e7e2'; ctx.lineWidth = 2.6; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.arc(52, 46, 7, 0.3, Math.PI - 0.3); ctx.stroke();
+  // hat per preset
+  ctx.fillStyle = trim;
+  if (preset.hat === 'cone') {
+    ctx.beginPath(); ctx.moveTo(52, 2); ctx.lineTo(34, 24); ctx.lineTo(70, 24); ctx.fill();
+  } else if (preset.hat === 'crest') {
+    ctx.fillRect(47, 6, 10, 18);
+  } else if (preset.hat === 'leaf') {
+    ctx.beginPath(); ctx.ellipse(52, 18, 24, 9, 0, Math.PI, 0); ctx.fill();
+  } else if (preset.hat === 'horns') {
+    ctx.beginPath(); ctx.moveTo(36, 24); ctx.lineTo(28, 6); ctx.lineTo(42, 18); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(68, 24); ctx.lineTo(76, 6); ctx.lineTo(62, 18); ctx.fill();
+  }
+}
+
 function setupLobby() {
+  $('#bootCheck')?.remove();   // the module booted — drop the failure notice
+
   const picks = $('#avatarPicks');
   AVATAR_PRESETS.forEach((p, i) => {
     const d = document.createElement('div');
     d.className = 'avatar-pick' + (i === 0 ? ' sel' : '');
-    d.textContent = p.emoji;
     d.title = p.name;
+    const cv = document.createElement('canvas');
+    drawAvatarTile(cv, p);
+    const nm = document.createElement('div');
+    nm.className = 'av-name';
+    nm.textContent = p.name;
+    d.append(cv, nm);
     d.onclick = () => {
       selectedAvatar = i;
       picks.querySelectorAll('.avatar-pick').forEach((el, j) => el.classList.toggle('sel', j === i));
@@ -39,19 +85,30 @@ function setupLobby() {
     };
     picks.appendChild(d);
   });
+
   const deckSel = $('#inDeck');
   for (const [id, d] of Object.entries(DECKS)) {
     const o = document.createElement('option');
     o.value = id; o.textContent = d.name;
     deckSel.appendChild(o);
   }
+  const custom = document.createElement('option');
+  custom.value = '__custom';
+  custom.textContent = '📋 Custom deck — paste a list or URL…';
+  deckSel.appendChild(custom);
+  deckSel.onchange = () => {
+    $('#homeImportField').classList.toggle('hidden', deckSel.value !== '__custom');
+    if (roomInfo && deckSel.value !== '__custom') net.setProfile({ deck: deckSel.value });
+  };
 
   const err = (m) => { $('#lobbyError').textContent = m; $('#lobbyError2').textContent = m; };
   const profile = () => ({
     name: $('#inName').value.trim() || 'Planeswalker',
     avatar: selectedAvatar,
-    deck: deckSel.value,
+    deck: deckSel.value === '__custom' ? 'red_aggro' : deckSel.value,  // fallback until import succeeds
   });
+  // custom decklist staged on the home screen, imported right after joining
+  const stagedDeck = () => deckSel.value === '__custom' ? $('#inDecklistHome').value.trim() : '';
 
   $('#btnHost').onclick = async () => {
     try { await net.ready; } catch (e) { return err(e.message); }
@@ -74,16 +131,19 @@ function setupLobby() {
   $('#btnImportDeck').onclick = () => {
     const list = $('#inDecklist').value.trim();
     if (!list) return;
-    $('#importStatus').textContent = 'Resolving via Scryfall…';
+    $('#importStatus').textContent = 'Resolving…';
+    $('#importStatus').style.color = 'var(--muted)';
     net.importDeck(list);
   };
   net.on('deckImported', (m) => {
+    const el = $('#importStatus');
     if (m.ok) {
-      $('#importStatus').textContent = `✓ Imported ${m.count} cards` + (m.sideboard ? ` + ${m.sideboard} sideboard` : '');
-      $('#importStatus').style.color = 'var(--teal)';
+      el.textContent = `✓ Imported${m.deckName ? ` “${m.deckName}”` : ''}: ${m.count} cards` +
+        (m.sideboard ? ` + ${m.sideboard} sideboard` : '');
+      el.style.color = 'var(--teal)';
     } else {
-      $('#importStatus').textContent = m.errors.join(' · ');
-      $('#importStatus').style.color = 'var(--red)';
+      el.textContent = '✗ ' + m.errors.join(' · ');
+      el.style.color = 'var(--red)';
     }
   });
 
@@ -96,6 +156,13 @@ function setupLobby() {
     $('#lobbyHome').classList.add('hidden');
     $('#lobbyRoom').classList.remove('hidden');
     renderRoom();
+    // custom deck staged on the home screen → import it now
+    const staged = stagedDeck();
+    if (staged && myRole === 'player') {
+      $('#inDecklist').value = staged;
+      $('#importStatus').textContent = 'Resolving…';
+      net.importDeck(staged);
+    }
     if (m.room.started && myRole === 'spectator') enterWorld();
   });
   net.on('room', (m) => {
@@ -133,7 +200,10 @@ function renderRoom() {
   roomInfo.players.forEach((p) => {
     const row = document.createElement('div');
     row.className = 'seat-row';
-    row.innerHTML = `<span>${AVATAR_PRESETS[p.avatar % AVATAR_PRESETS.length].emoji} ${escapeHtml(p.name)}` +
+    const preset = AVATAR_PRESETS[p.avatar % AVATAR_PRESETS.length];
+    const swatch = `<span style="display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:6px;
+      background:#${preset.body.toString(16).padStart(6, '0')}" title="${preset.name}"></span>`;
+    row.innerHTML = `<span>${swatch}${escapeHtml(p.name)}` +
       `${p.isHost ? '<span class="tag">host</span>' : ''}${p.isBot ? '<span class="tag">bot</span>' : ''}</span>` +
       `<span style="color:var(--muted)">${escapeHtml(p.deckLabel ?? DECKS[p.deck]?.name ?? '')}</span>`;
     list.appendChild(row);

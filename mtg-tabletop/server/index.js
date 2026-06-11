@@ -53,7 +53,9 @@ function roomInfo(r) {
     environment: r.environment,
     players: r.players.map(p => ({
       id: p.id, name: p.name, seat: p.seat, avatar: p.avatar, deck: p.deck,
-      deckLabel: p.customDeck ? `Custom · ${p.customDeck.deck.length} cards` : (DECKS[p.deck]?.name ?? ''),
+      deckLabel: p.customDeck
+        ? `${p.customDeck.name || 'Custom'} · ${p.customDeck.deck.length} cards`
+        : (DECKS[p.deck]?.name ?? ''),
       isHost: p.id === r.hostId, connected: p.ws.readyState === 1,
       camOn: p.camOn, micOn: p.micOn, isBot: !!p.isBot,
     })),
@@ -244,7 +246,7 @@ function handle(client, msg) {
         registerCards(result.defs);   // engine needs the defs server-side
         p.customDeck = result;
         send(ws, {
-          type: 'deckImported', ok: true,
+          type: 'deckImported', ok: true, deckName: result.name,
           count: result.deck.length, sideboard: result.sideboard.length,
         });
         broadcastRoom(r);

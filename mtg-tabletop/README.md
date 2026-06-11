@@ -79,12 +79,22 @@ The included set is a self-contained starter cube (5 colors, ~30 cards) with
 five prebuilt 40-card decks (each with a small sideboard) that work fully
 offline.
 
-For real cards, paste a decklist in the lobby (`4 Lightning Strike` per line,
-optional `Sideboard` section) and hit **Import deck**. Card data is fetched
-**on demand from Scryfall** — batched through `/cards/collection`, converted
-to the engine's format, and cached in memory and on disk, so the full card
-database is never stored. Card scans are proxied through the game server
-(Scryfall's CDN has no CORS headers) and rendered onto the 3D cards:
+For real cards, pick **“Custom deck — paste a list or URL…”** in the deck
+dropdown on the start page (or use the import box in the room) and paste
+either:
+
+- a **decklist** — `4 Lightning Strike` per line, optional `Sideboard`
+  section, or
+- a **deck URL** — Moxfield, Archidekt, MTGGoldfish, TappedOut, or any link
+  that serves a plain-text list. The server fetches the list from the deck
+  site for you.
+
+The deck is validated and imported automatically when you host or join. Card
+data is fetched **on demand from Scryfall** — batched through
+`/cards/collection`, converted to the engine's format, and cached in memory
+and on disk, so the full card database is never stored. Card scans are
+proxied through the game server (Scryfall's CDN has no CORS headers) and
+rendered onto the 3D cards:
 
 ![Scryfall cards](docs/scryfall-cards.png)
 

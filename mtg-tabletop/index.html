@@ -55,10 +55,15 @@
   .row { display: flex; gap: 8px; align-items: center; }
   .avatars { display: flex; gap: 10px; }
   .avatar-pick {
-    width: 56px; height: 56px; border-radius: 10px; border: 2px solid var(--line); cursor: pointer;
-    display: flex; align-items: center; justify-content: center; font-size: 26px; background: #11141a;
+    width: 64px; border-radius: 10px; border: 2px solid var(--line); cursor: pointer;
+    background: #11141a; padding: 4px 4px 2px; text-align: center;
+    transition: border-color .15s;
   }
+  .avatar-pick:hover { border-color: #5a6170; }
+  .avatar-pick canvas { width: 52px; height: 52px; border-radius: 7px; display: block; margin: 0 auto; }
+  .avatar-pick .av-name { font-size: 10px; color: var(--muted); letter-spacing: .04em; padding: 3px 0 2px; }
   .avatar-pick.sel { border-color: var(--gold); box-shadow: 0 0 0 2px rgba(212,175,106,.25); }
+  .avatar-pick.sel .av-name { color: var(--gold); }
   .seat-list { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; min-height: 120px; background: #0f1217; }
   .seat-list .seat-row { display: flex; justify-content: space-between; padding: 5px 2px; font-size: 14px; border-bottom: 1px dashed #20242c; }
   .seat-list .seat-row:last-child { border-bottom: none; }
@@ -142,6 +147,11 @@
   <div class="lobby-card">
     <h1>Planar Table</h1>
     <div class="sub">A 3D tabletop for Magic: The Gathering — sit down, play, and (if it goes badly) throw a sandal.</div>
+    <!-- visible only if the app module failed to boot (e.g. opened without the server) -->
+    <div id="bootCheck" style="background:rgba(226,106,90,.12); border:1px solid var(--red); border-radius:8px; padding:10px 14px; font-size:13px; color:var(--red); margin-bottom:14px">
+      The game client did not start. Run the server (<code>npm install && npm start</code> in <code>mtg-tabletop/</code>)
+      and open <code>http://localhost:8080</code> — this page cannot be opened as a plain file.
+    </div>
 
     <div id="lobbyHome">
       <div class="lobby-grid">
@@ -149,6 +159,14 @@
           <div class="field"><label>Your name</label><input id="inName" maxlength="24" placeholder="Planeswalker" /></div>
           <div class="field"><label>Avatar</label><div class="avatars" id="avatarPicks"></div></div>
           <div class="field"><label>Deck</label><select id="inDeck"></select></div>
+          <div class="field hidden" id="homeImportField">
+            <label>Paste a decklist (“4 Lightning Strike” per line, optional “Sideboard” section) — or a deck URL (Moxfield · Archidekt · MTGGoldfish · TappedOut · raw .txt)</label>
+            <textarea id="inDecklistHome" rows="5" placeholder="17 Mountain
+4 Lightning Strike
+…or just paste a link:
+https://archidekt.com/decks/1234567" style="width:100%; background:#11141a; color:var(--txt); border:1px solid var(--line); border-radius:8px; padding:8px 10px; font:12px/1.5 monospace; resize:vertical"></textarea>
+            <div id="homeImportStatus" style="font-size:12px; color:var(--muted); min-height:16px; margin-top:4px">The deck is checked and imported when you host or join.</div>
+          </div>
         </div>
         <div>
           <div class="field"><label>Host a table</label>
@@ -179,13 +197,15 @@
           <div class="field"><label>Room code — share with friends</label><div class="code-big" id="roomCode">----</div></div>
           <div class="field"><label>Table</label><div id="roomMeta" style="color:var(--muted); font-size:13px"></div></div>
           <div class="field" id="importField">
-            <label>Import deck from Scryfall (e.g. “4 Lightning Strike”, optional “Sideboard” section)</label>
+            <label>Custom deck — paste a decklist or a deck URL (Moxfield · Archidekt · MTGGoldfish · TappedOut · raw .txt). Card data is fetched from Scryfall.</label>
             <textarea id="inDecklist" rows="5" placeholder="17 Mountain
 4 Lightning Strike
 4 Shock
 …
 Sideboard
-3 Shock" style="width:100%; background:#11141a; color:var(--txt); border:1px solid var(--line); border-radius:8px; padding:8px 10px; font:12px/1.5 monospace; resize:vertical"></textarea>
+3 Shock
+
+— or just a link, e.g. https://archidekt.com/decks/1234567" style="width:100%; background:#11141a; color:var(--txt); border:1px solid var(--line); border-radius:8px; padding:8px 10px; font:12px/1.5 monospace; resize:vertical"></textarea>
             <div class="row" style="margin-top:6px">
               <button id="btnImportDeck">Import deck</button>
               <span id="importStatus" style="font-size:12px; color:var(--muted)"></span>
