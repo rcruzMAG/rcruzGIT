@@ -179,8 +179,10 @@ export function buildTable(scene, nSeats) {
     const chair = new THREE.Group();
     const seatMesh = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.07, 0.5), cushionMat);
     seatMesh.position.y = 0.52;
+    // lookAt() points local +z at the table, so the backrest goes on -z
+    // (behind the sitter, away from the table)
     const back = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.62, 0.07), chairMat);
-    back.position.set(0, 0.86, 0.235);
+    back.position.set(0, 0.86, -0.235);
     for (const [lx, lz] of [[-0.22, -0.2], [0.22, -0.2], [-0.22, 0.2], [0.22, 0.2]]) {
       const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.52), chairMat);
       leg.position.set(lx, 0.26, lz);
