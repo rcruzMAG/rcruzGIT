@@ -7,10 +7,11 @@ import { HandFan } from './scene/hand.js';
 import { makeAvatar, AVATAR_PRESETS } from './scene/avatar.js';
 import { Effects, sfx } from './scene/effects.js';
 import { SeatRig, WeaponRig, Controls } from './controls/modes.js';
+import { EnvironmentManager, ENVIRONMENTS } from './scene/environments.js';
 import { NetClient } from './net/client.js';
 import { MediaMesh } from './net/media.js';
 import { Hud } from './ui/hud.js';
-import { CARDS, DECKS } from '../shared/cards.js';
+import { CARDS, DECKS, registerCards } from '../shared/cards.js';
 
 const $ = (s) => document.querySelector(s);
 
@@ -70,12 +71,28 @@ function setupLobby() {
   };
   $('#btnStart').onclick = () => net.start();
   $('#btnAddBot').onclick = () => net.addBot();
+  $('#btnImportDeck').onclick = () => {
+    const list = $('#inDecklist').value.trim();
+    if (!list) return;
+    $('#importStatus').textContent = 'Resolving via Scryfall…';
+    net.importDeck(list);
+  };
+  net.on('deckImported', (m) => {
+    if (m.ok) {
+      $('#importStatus').textContent = `✓ Imported ${m.count} cards` + (m.sideboard ? ` + ${m.sideboard} sideboard` : '');
+      $('#importStatus').style.color = 'var(--teal)';
+    } else {
+      $('#importStatus').textContent = m.errors.join(' · ');
+      $('#importStatus').style.color = 'var(--red)';
+    }
+  });
 
   net.on('error', (m) => err(m.error));
   net.on('joined', (m) => {
     myRole = m.role;
     mySeat = m.role === 'player' ? m.seat : -1;
     roomInfo = m.room;
+    if (m.cardDefs) registerCards(m.cardDefs);
     $('#lobbyHome').classList.add('hidden');
     $('#lobbyRoom').classList.remove('hidden');
     renderRoom();
@@ -91,6 +108,7 @@ function setupLobby() {
   });
   net.on('gameStarted', (m) => {
     roomInfo = m.room;
+    if (m.cardDefs) registerCards(m.cardDefs);
     const me = roomInfo.players.find(p => p.id === net.id);
     if (me) mySeat = me.seat;
     enterWorld();
@@ -117,7 +135,7 @@ function renderRoom() {
     row.className = 'seat-row';
     row.innerHTML = `<span>${AVATAR_PRESETS[p.avatar % AVATAR_PRESETS.length].emoji} ${escapeHtml(p.name)}` +
       `${p.isHost ? '<span class="tag">host</span>' : ''}${p.isBot ? '<span class="tag">bot</span>' : ''}</span>` +
-      `<span style="color:var(--muted)">${DECKS[p.deck]?.name ?? ''}</span>`;
+      `<span style="color:var(--muted)">${escapeHtml(p.deckLabel ?? DECKS[p.deck]?.name ?? '')}</span>`;
     list.appendChild(row);
   });
   const meHost = roomInfo.players.find(p => p.id === net.id && p.isHost);
@@ -167,8 +185,13 @@ function enterWorld() {
   const nSeats = roomInfo.players.length;
   const table = buildTable(scene, nSeats);
   const effects = new Effects(scene, table);
-  const cardTable = new CardTable(scene, table.radius, table.seats, mySeat);
+  const cardTable = new CardTable(scene, table, mySeat);
   cardTable.camera = camera;
+
+  // switchable environment around the table (synced for everyone)
+  const envMgr = new EnvironmentManager(scene, table.radius);
+  envMgr.set(roomInfo.environment || 'tavern');
+  setupEnvMenu(envMgr);
 
   // avatars (own avatar exists for others/spectators, hidden locally)
   const avatarsBySeat = new Map();
@@ -201,7 +224,7 @@ function enterWorld() {
 
   world = {
     renderer, scene, camera, table, effects, cardTable, hand, controls, rig,
-    avatarsBySeat, avatarsById, syncRoom,
+    avatarsBySeat, avatarsById, syncRoom, envMgr,
   };
 
   setupPicking();
@@ -218,8 +241,37 @@ function enterWorld() {
     hand?.update(dt);
     for (const av of avatarsBySeat.values()) av.update(dt, t);
     effects.update(dt);
+    envMgr.update(dt, camera);
     effects.applyShake(camera, t);
     renderer.render(scene, camera);
+  });
+}
+
+function setupEnvMenu(envMgr) {
+  const menu = $('#envMenu');
+  menu.innerHTML = '';
+  for (const [key, label] of Object.entries(ENVIRONMENTS)) {
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.onclick = () => {
+      net.setEnv(key);
+      envMgr.set(key);          // apply immediately for the requester
+      menu.classList.add('hidden');
+      refreshEnvMenu();
+    };
+    menu.appendChild(b);
+  }
+  function refreshEnvMenu() {
+    [...menu.children].forEach((b, i) => {
+      const key = Object.keys(ENVIRONMENTS)[i];
+      b.classList.toggle('primary', key === envMgr.name);
+    });
+  }
+  $('#envBtn').onclick = () => { menu.classList.toggle('hidden'); refreshEnvMenu(); };
+  net.on('env', (m) => {
+    envMgr.set(m.name);
+    refreshEnvMenu();
+    hud?.toast(`${m.by} changed the scene to ${ENVIRONMENTS[m.name]}`);
   });
 }
 

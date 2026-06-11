@@ -26,11 +26,15 @@ for (const [id, d] of Object.entries(DECKS)) {
 
 console.log('— game setup & mulligan —');
 const g = createGame([
-  { id: 'a', name: 'Alice', deck: [...DECKS.red_aggro.cards] },
+  { id: 'a', name: 'Alice', deck: [...DECKS.red_aggro.cards], sideboard: [...DECKS.red_aggro.sideboard] },
   { id: 'b', name: 'Bob', deck: [...DECKS.green_stompy.cards] },
 ]);
 assert(g.phase === 'mulligan', 'starts in mulligan phase');
 assert(g.players[0].hand.length === 7 && g.players[1].hand.length === 7, 'both drew 7');
+assert(g.players[0].sideboard.length === 5, 'sideboard zone populated');
+assert(viewFor(g, 0).players[0].sideboard.length === 5, 'own sideboard visible');
+assert(viewFor(g, 1).players[0].sideboard === undefined &&
+       viewFor(g, 1).players[0].sideboardSize === 5, "opponent's sideboard hidden (size only)");
 
 act(g, 0, { type: 'mulligan' });
 assert(g.players[0].hand.length === 6, 'mulligan redraws 6');

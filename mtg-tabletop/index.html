@@ -178,6 +178,19 @@
         <div>
           <div class="field"><label>Room code — share with friends</label><div class="code-big" id="roomCode">----</div></div>
           <div class="field"><label>Table</label><div id="roomMeta" style="color:var(--muted); font-size:13px"></div></div>
+          <div class="field" id="importField">
+            <label>Import deck from Scryfall (e.g. “4 Lightning Strike”, optional “Sideboard” section)</label>
+            <textarea id="inDecklist" rows="5" placeholder="17 Mountain
+4 Lightning Strike
+4 Shock
+…
+Sideboard
+3 Shock" style="width:100%; background:#11141a; color:var(--txt); border:1px solid var(--line); border-radius:8px; padding:8px 10px; font:12px/1.5 monospace; resize:vertical"></textarea>
+            <div class="row" style="margin-top:6px">
+              <button id="btnImportDeck">Import deck</button>
+              <span id="importStatus" style="font-size:12px; color:var(--muted)"></span>
+            </div>
+          </div>
           <div class="row" style="margin-top:14px">
             <button class="primary hidden" id="btnStart">Start game</button>
             <button class="hidden" id="btnAddBot">Add practice bot</button>
@@ -212,6 +225,8 @@
   </div>
   <div id="crosshair">+</div>
   <button id="settingsBtn">⚙ A/V</button>
+  <button id="envBtn" style="position:fixed; top:64px; right:90px">🌍 Scene</button>
+  <div id="envMenu" class="panel hidden" style="position:fixed; top:104px; right:90px; width:200px; padding:8px; display:flex; flex-direction:column; gap:4px"></div>
   <div id="settings" class="panel hidden">
     <h3>Camera & audio</h3>
     <div class="field"><button id="btnCam" style="width:100%">📷 Camera: off</button></div>
@@ -222,6 +237,11 @@
   </div>
   <div id="toast"></div>
 </div>
+
+<!-- sun glare overlay (beach environment) -->
+<div id="glare" style="position:fixed; inset:0; z-index:20; pointer-events:none; opacity:0;
+  background: radial-gradient(circle at 50% 18%, rgba(255,248,220,0.95) 0%, rgba(255,240,200,0.5) 22%, transparent 55%);
+  transition: opacity .12s linear"></div>
 
 <div id="gameOver" class="hidden"><div class="panel"><h2 id="gameOverTitle">Victory</h2>
   <div id="gameOverSub" style="color:var(--muted); margin-bottom:18px"></div>

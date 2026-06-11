@@ -8,7 +8,10 @@ import { WebSocketServer } from 'ws';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createGame, applyAction, viewFor, drainEvents } from '../shared/engine.js';
-import { DECKS } from '../shared/cards.js';
+import { DECKS, registerCards } from '../shared/cards.js';
+import { resolveDecklist } from './scryfall.js';
+
+const ENV_NAMES = ['tavern', 'living_room', 'beach', 'market', 'mountain', 'jungle'];
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEV = process.argv.includes('--dev');
@@ -47,8 +50,10 @@ function roomInfo(r) {
     code: r.code,
     maxSeats: r.maxSeats,
     started: !!r.game,
+    environment: r.environment,
     players: r.players.map(p => ({
       id: p.id, name: p.name, seat: p.seat, avatar: p.avatar, deck: p.deck,
+      deckLabel: p.customDeck ? `Custom · ${p.customDeck.deck.length} cards` : (DECKS[p.deck]?.name ?? ''),
       isHost: p.id === r.hostId, connected: p.ws.readyState === 1,
       camOn: p.camOn, micOn: p.micOn, isBot: !!p.isBot,
     })),
@@ -154,6 +159,7 @@ function handle(client, msg) {
       const r = {
         code, maxSeats, hostId: client.id,
         players: [], spectators: [], game: null,
+        environment: 'tavern', cardDefs: {},
       };
       rooms.set(code, r);
       joinAsPlayer(client, r, msg);
@@ -173,7 +179,7 @@ function handle(client, msg) {
       const spec = { id: client.id, name: msg.name || 'Spectator', ws, seat: -1 };
       r.spectators.push(spec);
       client.room = r; client.role = 'spectator';
-      send(ws, { type: 'joined', id: client.id, role: 'spectator', room: roomInfo(r) });
+      send(ws, { type: 'joined', id: client.id, role: 'spectator', room: roomInfo(r), cardDefs: r.cardDefs });
       if (r.game) send(ws, { type: 'game', view: viewFor(r.game, -1), events: [] });
       broadcastRoom(r);
       break;
@@ -210,13 +216,49 @@ function handle(client, msg) {
       if (!r || r.hostId !== client.id) return send(ws, { type: 'error', error: 'Only the host can start' });
       if (r.game) return;
       if (r.players.length < 2) return send(ws, { type: 'error', error: 'Need at least 2 players (add a bot to practice)' });
+      // collect Scryfall defs from custom decks so all clients can render them
+      r.cardDefs = {};
+      for (const p of r.players) {
+        if (p.customDeck) Object.assign(r.cardDefs, p.customDeck.defs);
+      }
       r.game = createGame(r.players.map(p => ({
-        id: p.id, name: p.name, deck: DECKS[p.deck || 'red_aggro'].cards,
+        id: p.id, name: p.name,
+        deck: p.customDeck ? p.customDeck.deck : DECKS[p.deck || 'red_aggro'].cards,
+        sideboard: p.customDeck ? p.customDeck.sideboard : (DECKS[p.deck || 'red_aggro'].sideboard || []),
       })));
       r.players.forEach((p, i) => { p.seat = i; });
-      broadcast(r, { type: 'gameStarted', room: roomInfo(r) });
+      broadcast(r, { type: 'gameStarted', room: roomInfo(r), cardDefs: r.cardDefs });
       runBots(r);
       broadcastGame(r);
+      break;
+    }
+    // Import a decklist via Scryfall (on-demand card data, server-side cache).
+    case 'importDeck': {
+      const r = client.room;
+      const p = r?.players.find(p => p.id === client.id);
+      if (!p || r.game) return;
+      resolveDecklist(msg.list).then((result) => {
+        if (result.errors.length) {
+          return send(ws, { type: 'deckImported', ok: false, errors: result.errors.slice(0, 8) });
+        }
+        registerCards(result.defs);   // engine needs the defs server-side
+        p.customDeck = result;
+        send(ws, {
+          type: 'deckImported', ok: true,
+          count: result.deck.length, sideboard: result.sideboard.length,
+        });
+        broadcastRoom(r);
+      }).catch((e) => {
+        send(ws, { type: 'deckImported', ok: false, errors: ['Scryfall unreachable: ' + e.message] });
+      });
+      break;
+    }
+    // Any player (or spectator) can change the scene around the table.
+    case 'setEnv': {
+      const r = client.room;
+      if (!r || !ENV_NAMES.includes(msg.name)) return;
+      r.environment = msg.name;
+      broadcast(r, { type: 'env', name: msg.name, by: nameOf(r, client.id) }, ws);
       break;
     }
     case 'action': {
@@ -275,6 +317,30 @@ function joinAsPlayer(client, r, msg) {
 }
 
 // ------------------------------------------------------------------ http
+
+// Scryfall's image CDN sends no CORS headers, so card scans are proxied
+// through us (same-origin for the WebGL textures). Browser-cacheable.
+const imgCache = new Map(); // url -> {buf, type}
+app.get('/cardimg', async (req, res) => {
+  let url;
+  try { url = new URL(String(req.query.u || '')); } catch { return res.status(400).end(); }
+  if (url.hostname !== 'cards.scryfall.io') return res.status(403).end();
+  try {
+    let entry = imgCache.get(url.href);
+    if (!entry) {
+      const r = await fetch(url, { headers: { 'User-Agent': 'PlanarTable/1.0' } });
+      if (!r.ok) return res.status(r.status).end();
+      entry = { buf: Buffer.from(await r.arrayBuffer()), type: r.headers.get('content-type') || 'image/jpeg' };
+      if (imgCache.size > 600) imgCache.delete(imgCache.keys().next().value);
+      imgCache.set(url.href, entry);
+    }
+    res.set('Content-Type', entry.type);
+    res.set('Cache-Control', 'public, max-age=604800, immutable');
+    res.send(entry.buf);
+  } catch {
+    res.status(502).end();
+  }
+});
 
 if (DEV) {
   // Run Vite as middleware so `npm run dev` is a single process.

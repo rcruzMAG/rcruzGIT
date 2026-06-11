@@ -46,7 +46,8 @@ export function createScene(renderer) {
   rim.position.set(-6, 4, -7);
   scene.add(rim);
 
-  buildRoom(scene);
+  // environments (src/scene/environments.js) retune these per scene preset
+  scene.userData.lights = { key, fill, rim };
   return scene;
 }
 
@@ -101,67 +102,44 @@ function feltTexture(tint = '#1d3a2e') {
   }, 1024, 1024);
 }
 
-// ------------------------------------------------------------------ room
-
-function buildRoom(scene) {
-  const floorTex = woodTexture('#3a2c1d', '#241a10');
-  floorTex.repeat.set(6, 6);
-  const floor = new THREE.Mesh(
-    new THREE.CircleGeometry(16, 48),
-    new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.85, metalness: 0.05 }),
-  );
-  floor.rotation.x = -Math.PI / 2;
-  floor.receiveShadow = true;
-  scene.add(floor);
-
-  // surrounding wall cylinder, dark tavern feel
-  const wall = new THREE.Mesh(
-    new THREE.CylinderGeometry(16, 16, 8, 48, 1, true),
-    new THREE.MeshStandardMaterial({ color: 0x191b20, roughness: 0.95, side: THREE.BackSide }),
-  );
-  wall.position.y = 4;
-  scene.add(wall);
-
-  // hanging lamp above the table
-  const lampGroup = new THREE.Group();
-  const shade = new THREE.Mesh(
-    new THREE.ConeGeometry(0.85, 0.55, 32, 1, true),
-    new THREE.MeshStandardMaterial({ color: 0x232323, roughness: 0.5, metalness: 0.7, side: THREE.DoubleSide }),
-  );
-  shade.position.y = 4.45;
-  const bulb = new THREE.Mesh(
-    new THREE.SphereGeometry(0.13, 16, 16),
-    new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffd9a0, emissiveIntensity: 6 }),
-  );
-  bulb.position.y = 4.25;
-  const cord = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.015, 0.015, 3.4),
-    new THREE.MeshStandardMaterial({ color: 0x111111 }),
-  );
-  cord.position.y = 6.3;
-  lampGroup.add(shade, bulb, cord);
-  scene.add(lampGroup);
-}
+// procedural texture helpers shared with the environments module
+export { canvasTexture, woodTexture, feltTexture };
 
 // ------------------------------------------------------------------ table
 
-// Returns { group, seats: [{position, angle, lookAt}], radius } sized for n players.
+// Table shape rule: a square for 2–4 players, then an n-sided regular polygon
+// with one flat side per player for 5+. Each seat faces the middle of a side.
+// Returns { group, seats, radius (inradius), sideHalf, surface, props }.
 export function buildTable(scene, nSeats) {
   const group = new THREE.Group();
   group.name = 'table';
 
-  // table radius grows with the seat count
-  const radius = nSeats <= 2 ? 1.55 : 1.25 + nSeats * 0.3;
-  const rimR = radius + 0.12;
+  const sides = nSeats <= 4 ? 4 : nSeats;
+  let circR, inR;
+  if (nSeats <= 4) {
+    inR = 1.35 + nSeats * 0.14;            // square half-width
+    circR = inR / Math.cos(Math.PI / 4);
+  } else {
+    circR = 1.05 + nSeats * 0.34;
+    inR = circR * Math.cos(Math.PI / sides);
+  }
+  const sideHalf = circR * Math.sin(Math.PI / sides); // half length of one flat side
+  // rotate the prism so face centers (not corners) point at seat angles k·2π/sides
+  const thetaStart = -Math.PI / sides;
 
   const wood = new THREE.MeshStandardMaterial({ map: woodTexture(), roughness: 0.55, metalness: 0.08 });
   const felt = new THREE.MeshStandardMaterial({ map: feltTexture(), roughness: 0.97, metalness: 0 });
 
-  const rim = new THREE.Mesh(new THREE.CylinderGeometry(rimR, rimR * 0.97, 0.09, 64), wood);
+  const rimScale = 1 + 0.12 / circR;
+  const rim = new THREE.Mesh(
+    new THREE.CylinderGeometry(circR * rimScale, circR * rimScale * 0.97, 0.09, sides, 1, false, thetaStart),
+    wood);
   rim.position.y = TABLE_Y - 0.045;
   rim.castShadow = rim.receiveShadow = true;
 
-  const top = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, 0.012, 64), felt);
+  const top = new THREE.Mesh(
+    new THREE.CylinderGeometry(circR, circR, 0.012, sides, 1, false, thetaStart),
+    felt);
   top.position.y = TABLE_Y;
   top.receiveShadow = true;
   top.name = 'tabletop';
@@ -169,20 +147,27 @@ export function buildTable(scene, nSeats) {
   const column = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.22, TABLE_Y - 0.1, 24), wood);
   column.position.y = (TABLE_Y - 0.1) / 2;
   column.castShadow = true;
-  const foot = new THREE.Mesh(new THREE.CylinderGeometry(0.65, 0.72, 0.08, 32), wood);
+  const foot = new THREE.Mesh(new THREE.CylinderGeometry(inR * 0.42, inR * 0.46, 0.08, sides, 1, false, thetaStart), wood);
   foot.position.y = 0.04;
   foot.castShadow = foot.receiveShadow = true;
 
   group.add(rim, top, column, foot);
 
-  // seats around the table
+  // seat angles: one flat side per seat; on the square, 2 players sit opposite,
+  // 3 players take three of the four sides
+  const seatAngles =
+    nSeats === 2 ? [0, Math.PI] :
+    nSeats === 3 ? [0, Math.PI / 2, Math.PI] :
+    Array.from({ length: nSeats }, (_, i) => (i / sides) * Math.PI * 2);
+
   const seats = [];
   const chairMat = new THREE.MeshStandardMaterial({ color: 0x2c2218, roughness: 0.8 });
   const cushionMat = new THREE.MeshStandardMaterial({ color: 0x4a2630, roughness: 0.95 });
   for (let i = 0; i < nSeats; i++) {
-    const angle = (i / nSeats) * Math.PI * 2 + Math.PI / 2; // seat 0 faces -Z side
-    const dist = rimR + 0.55;
-    const pos = new THREE.Vector3(Math.cos(angle) * dist, 0, Math.sin(angle) * dist);
+    const angle = seatAngles[i];
+    const dist = inR + 0.12 + 0.55;
+    // angles are measured like the cylinder geometry: x = sin, z = cos
+    const pos = new THREE.Vector3(Math.sin(angle) * dist, 0, Math.cos(angle) * dist);
     seats.push({
       index: i,
       angle,
@@ -202,7 +187,7 @@ export function buildTable(scene, nSeats) {
       chair.add(leg);
     }
     chair.add(seatMesh, back);
-    chair.position.copy(pos).add(new THREE.Vector3(Math.cos(angle) * 0.22, 0, Math.sin(angle) * 0.22));
+    chair.position.copy(pos).add(new THREE.Vector3(Math.sin(angle) * 0.22, 0, Math.cos(angle) * 0.22));
     chair.lookAt(0, 0.5, 0);
     chair.traverse(o => { o.castShadow = true; });
     group.add(chair);
@@ -213,7 +198,7 @@ export function buildTable(scene, nSeats) {
   const diceMat = new THREE.MeshStandardMaterial({ color: 0xe8e2d2, roughness: 0.35 });
   for (let i = 0; i < 4; i++) {
     const die = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.045, 0.045), diceMat);
-    const a = Math.random() * Math.PI * 2, r = radius * (0.55 + Math.random() * 0.3);
+    const a = Math.random() * Math.PI * 2, r = inR * (0.25 + Math.random() * 0.25);
     die.position.set(Math.cos(a) * r, TABLE_Y + 0.03, Math.sin(a) * r);
     die.rotation.set(Math.random(), Math.random(), Math.random());
     die.castShadow = true;
@@ -229,12 +214,12 @@ export function buildTable(scene, nSeats) {
     new THREE.MeshStandardMaterial({ color: 0xf2ead3, roughness: 0.8 }));
   foam.position.y = 0.135;
   mug.add(mugBody, foam);
-  mug.position.set(radius * 0.7, TABLE_Y, -radius * 0.45);
+  mug.position.set(inR * 0.32, TABLE_Y, -inR * 0.2);
   mug.userData.rest = mug.position.clone();
   mug.traverse(o => { o.castShadow = true; });
   props.push(mug);
   group.add(mug);
 
   scene.add(group);
-  return { group, seats, radius, surface: top, props };
+  return { group, seats, radius: inR, sideHalf, surface: top, props };
 }

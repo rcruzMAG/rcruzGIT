@@ -40,12 +40,13 @@ function makeInstance(cardId, owner) {
 // ------------------------------------------------------------------ creation
 
 export function createGame(players) {
-  // players: [{id, name, deck: [cardId...] }]
+  // players: [{id, name, deck: [cardId...], sideboard?: [cardId...] }]
   const state = {
     players: players.map((p, i) => ({
       id: p.id, name: p.name, seat: i,
       life: 20,
       library: shuffle(p.deck.map(cid => makeInstance(cid, i))),
+      sideboard: (p.sideboard || []).map(cid => makeInstance(cid, i)),
       hand: [], battlefield: [], graveyard: [], exile: [],
       manaPool: { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 },
       landsPlayed: 0, mulligans: 0, keptHand: false,
@@ -854,6 +855,8 @@ export function viewFor(state, seat) {
       battlefield: p.battlefield,
       graveyard: p.graveyard,
       exile: p.exile,
+      sideboard: p.seat === seat ? p.sideboard : undefined,  // hidden zone: owner only
+      sideboardSize: p.sideboard.length,
       manaPool: p.manaPool,
       landsPlayed: p.landsPlayed,
     })),

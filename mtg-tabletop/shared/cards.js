@@ -8,6 +8,13 @@
 export const CARDS = {};
 function def(card) { CARDS[card.id] = card; return card; }
 
+// Dynamic registry: cards resolved from Scryfall at runtime are registered
+// here (server-side at import, client-side from the defs the server sends).
+// This keeps the built-in set tiny — the full card pool stays on Scryfall.
+export function registerCards(defs) {
+  for (const [id, card] of Object.entries(defs || {})) CARDS[id] = card;
+}
+
 // ---------------------------------------------------------------- lands
 for (const [id, name, color] of [
   ['plains', 'Plains', 'W'], ['island', 'Island', 'U'], ['swamp', 'Swamp', 'B'],
@@ -172,6 +179,13 @@ export const DECKS = {
     ]),
   },
 };
+
+// Small default sideboards so the zone is populated even without imports.
+DECKS.red_aggro.sideboard = deck([['shock', 2], ['cinder_giant', 2], ['ember_drake', 1]]);
+DECKS.green_stompy.sideboard = deck([['rabid_bite', 2], ['elder_wurm', 1], ['canopy_stalker', 2]]);
+DECKS.white_weenie.sideboard = deck([['pacify', 2], ['revitalize', 1], ['sun_seraph', 2]]);
+DECKS.blue_tempo.sideboard = deck([['essence_scatter', 2], ['cancel', 2], ['cloud_djinn', 1]]);
+DECKS.black_control.sideboard = deck([['murder', 2], ['duress_bolt', 2], ['dread_vampire', 1]]);
 
 // Safety: pad/trim to exactly 40 with the deck's basic land.
 const BASIC_BY_COLOR = { W: 'plains', U: 'island', B: 'swamp', R: 'mountain', G: 'forest' };

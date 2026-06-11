@@ -8,7 +8,7 @@ import { TABLE_Y } from './world.js';
 // ------------------------------------------------------------------ audio
 
 let actx = null;
-function audio() {
+export function audio() {
   if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
   if (actx.state === 'suspended') actx.resume();
   return actx;

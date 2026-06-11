@@ -31,4 +31,6 @@ export class NetClient {
   action(action) { this.send({ type: 'action', action }); }
   antic(antic) { this.send({ type: 'antic', antic }); }
   rtc(to, data) { this.send({ type: 'rtc', to, data }); }
+  importDeck(list) { this.send({ type: 'importDeck', list }); }
+  setEnv(name) { this.send({ type: 'setEnv', name }); }
 }

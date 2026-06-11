@@ -65,8 +65,9 @@ export class HandFan {
         .addScaledVector(flatFwd, Math.abs(k) * -0.012 + (isHover ? -0.07 : 0));
       target.y += -Math.abs(k) * 0.008 + (isHover ? 0.09 : 0) + (isSel ? 0.05 : 0);
 
-      const yaw = Math.atan2(flatFwd.x, flatFwd.z) + Math.PI;
-      const e = new THREE.Euler(-Math.PI / 2 + 0.62, yaw + Math.PI, k * -0.06, 'YXZ');
+      // tilt the face toward the camera with the title edge upright
+      const yaw = Math.atan2(-flatFwd.x, -flatFwd.z);
+      const e = new THREE.Euler(Math.PI / 2 - 0.62, yaw, k * -0.06, 'YXZ');
       const tq = new THREE.Quaternion().setFromEuler(e);
 
       mesh.position.lerp(target, Math.min(1, dt * 14));

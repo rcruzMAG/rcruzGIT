@@ -106,6 +106,18 @@ export function cardFaceTexture(cardId) {
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 8;
   faceCache.set(cardId, tex);
+
+  // Scryfall-imported cards: swap in the real card scan once it loads
+  // (proxied through our server — the CDN sends no CORS headers).
+  // The procedural face above doubles as the loading placeholder.
+  if (c.imageUrl) {
+    const img = new Image();
+    img.onload = () => {
+      ctx.drawImage(img, 0, 0, W, H);
+      tex.needsUpdate = true;
+    };
+    img.src = '/cardimg?u=' + encodeURIComponent(c.imageUrl);
+  }
   return tex;
 }
 
@@ -219,18 +231,86 @@ export function updateTweens(dt) {
 // Computes world transforms for every visible card given a game view, then
 // reconciles a mesh pool keyed by instId, tweening cards between zones.
 export class CardTable {
-  constructor(scene, tableRadius, seats, mySeat) {
+  constructor(scene, table, mySeat) {
     this.scene = scene;
-    this.radius = tableRadius;
-    this.seats = seats;
-    this.mySeat = mySeat;         // -1 for spectators
-    this.meshes = new Map();      // instId -> mesh
+    this.radius = table.radius;        // table inradius
+    this.sideHalf = table.sideHalf;    // half-length of each player's table edge
+    this.seats = table.seats;
+    this.mySeat = mySeat;              // -1 for spectators
+    this.meshes = new Map();           // instId -> mesh
     this.group = new THREE.Group();
     this.group.name = 'cards';
     scene.add(this.group);
     this.hovered = null;
-    this.selected = new Set();    // instIds highlighted (attackers, targets…)
+    this.selected = new Set();         // instIds highlighted (attackers, targets…)
     this.camera = null;
+    this.buildPlaymats();
+  }
+
+  // Per-seat playmat printed with every zone: battlefield rows, library,
+  // graveyard, exile and sideboard pads. Hand is the fan in front of you.
+  buildPlaymats() {
+    const padW = Math.min(this.sideHalf * 1.9, this.radius * 1.5);
+    const padD = Math.min(this.radius * 0.62, 0.92);
+    const tex = (() => {
+      const cv = document.createElement('canvas');
+      const W = 720, H = Math.round(720 * (padD / padW));
+      cv.width = W; cv.height = H;
+      const ctx = cv.getContext('2d');
+      ctx.clearRect(0, 0, W, H);
+      const line = 'rgba(240,230,200,0.28)';
+      const label = 'rgba(240,230,200,0.4)';
+      const zone = (x, y, w, h, name) => {
+        ctx.strokeStyle = line; ctx.lineWidth = 2;
+        ctx.setLineDash([8, 6]);
+        ctx.beginPath(); ctx.roundRect(x, y, w, h, 8); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = label;
+        ctx.font = `600 ${Math.max(11, H * 0.075)}px Inter, Arial`;
+        ctx.textAlign = 'center';
+        ctx.fillText(name, x + w / 2, y + h - 6);
+      };
+      // top of texture = toward table center (battlefield), bottom = player edge
+      const sideW = W * 0.16;
+      zone(sideW + 6, 4, W - 2 * sideW - 12, H * 0.46, 'BATTLEFIELD');
+      zone(sideW + 6, H * 0.5, W - 2 * sideW - 12, H * 0.46, 'LANDS');
+      zone(4, H * 0.5, sideW - 6, H * 0.46, 'LIBRARY');
+      zone(4, 4, sideW - 6, H * 0.44, 'SIDEBOARD');
+      zone(W - sideW + 2, H * 0.5, sideW - 6, H * 0.46, 'GRAVEYARD');
+      zone(W - sideW + 2, 4, sideW - 6, H * 0.44, 'EXILE');
+      const t = new THREE.CanvasTexture(cv);
+      t.colorSpace = THREE.SRGBColorSpace;
+      t.anisotropy = 8;
+      return t;
+    })();
+
+    for (const seat of this.seats) {
+      const frame = this.seatFrame(seat.index);
+      const matMesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(padW, padD),
+        new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }),
+      );
+      matMesh.rotation.set(-Math.PI / 2, 0, 0);
+      const pos = frame.origin.clone().addScaledVector(frame.fwd, padD / 2 - 0.04);
+      pos.y = TABLE_Y + 0.0085;   // just above the felt cap so it isn't occluded
+      matMesh.position.copy(pos);
+      matMesh.rotateZ(frame.yaw);
+      matMesh.renderOrder = 1;
+      this.group.add(matMesh);
+    }
+  }
+
+  // zone anchor offsets within a seat's playmat (dx along edge, dz toward center)
+  zoneAnchors() {
+    const padW = Math.min(this.sideHalf * 1.9, this.radius * 1.5);
+    const x = padW / 2 - 0.1;
+    return {
+      library: { dx: -x, dz: 0.10 },
+      sideboard: { dx: -x, dz: 0.40 },
+      graveyard: { dx: x, dz: 0.10 },
+      exile: { dx: x, dz: 0.40 },
+      rowHalf: padW / 2 - 0.26,
+    };
   }
 
   // Per-seat local frame: origin at table edge in front of seat, +z toward center.
@@ -248,7 +328,7 @@ export class CardTable {
     const pos = frame.origin.clone()
       .addScaledVector(frame.right, dx)
       .addScaledVector(frame.fwd, dz);
-    pos.y = TABLE_Y + 0.004 + lift;
+    pos.y = TABLE_Y + 0.01 + lift;  // above felt cap and zone mats
     // BoxGeometry +y face carries the card face; X-flip turns it face down
     const e = new THREE.Euler(faceUp ? 0 : Math.PI, frame.yaw + (tapped ? -Math.PI / 2 : 0), 0, 'YXZ');
     return { pos, quat: new THREE.Quaternion().setFromEuler(e) };
@@ -256,19 +336,19 @@ export class CardTable {
 
   layout(view, opts = {}) {
     const wanted = new Map(); // instId -> {cardId, transform, zone, dur, arc}
-    const n = view.players.length;
+    const anchors = this.zoneAnchors();
 
     for (const p of view.players) {
       const frame = this.seatFrame(p.seat);
       const isMe = p.seat === this.mySeat;
 
-      // ---- battlefield: lands row near edge, creatures row toward center
+      // ---- battlefield: lands row near edge, other permanents toward center
       const lands = p.battlefield.filter(c => CARDS[c.cardId].types.includes('land'));
       const creats = p.battlefield.filter(c => !CARDS[c.cardId].types.includes('land'));
-      layoutRow(lands, 0.10, this.radius);
-      layoutRow(creats, 0.34, this.radius);
-      function layoutRow(row, dz, radius) {
-        const gap = Math.min(CARD_W + 0.02, (radius * 1.1) / Math.max(1, row.length));
+      layoutRow(lands, 0.14);
+      layoutRow(creats, 0.42);
+      function layoutRow(row, dz) {
+        const gap = Math.min(CARD_W + 0.02, (anchors.rowHalf * 2) / Math.max(1, row.length));
         row.forEach((perm, i) => {
           const dx = (i - (row.length - 1) / 2) * gap;
           wanted.set(perm.instId, {
@@ -278,20 +358,36 @@ export class CardTable {
         });
       }
 
-      // ---- library: face-down stack left of play area
+      // ---- library: face-down stack on the LIBRARY pad
       const libHeight = Math.min(p.librarySize, 30);
       if (libHeight > 0) {
         wanted.set('lib_' + p.seat, {
           cardId: null, zone: 'library', seat: p.seat,
-          dx: -this.radius * 0.62, dz: 0.10, stack: libHeight,
+          dx: anchors.library.dx, dz: anchors.library.dz, stack: libHeight,
         });
       }
-      // ---- graveyard: face-up pile right of play area
+      // ---- graveyard: face-up pile on the GRAVEYARD pad
       const top = p.graveyard[p.graveyard.length - 1];
       if (top) {
         wanted.set('gy_' + p.seat, {
           cardId: top.cardId, zone: 'graveyard', seat: p.seat,
-          dx: this.radius * 0.62, dz: 0.10, stack: Math.min(p.graveyard.length, 20),
+          dx: anchors.graveyard.dx, dz: anchors.graveyard.dz, stack: Math.min(p.graveyard.length, 20),
+        });
+      }
+      // ---- exile: face-up pile on the EXILE pad
+      const exTop = p.exile[p.exile.length - 1];
+      if (exTop) {
+        wanted.set('ex_' + p.seat, {
+          cardId: exTop.cardId, zone: 'exile', seat: p.seat,
+          dx: anchors.exile.dx, dz: anchors.exile.dz, stack: Math.min(p.exile.length, 20),
+        });
+      }
+      // ---- sideboard: face-down stack on the SIDEBOARD pad
+      const sbSize = p.seat === this.mySeat ? (p.sideboard?.length ?? 0) : (p.sideboardSize ?? 0);
+      if (sbSize > 0) {
+        wanted.set('sb_' + p.seat, {
+          cardId: null, zone: 'sideboard', seat: p.seat,
+          dx: anchors.sideboard.dx, dz: anchors.sideboard.dz, stack: Math.min(sbSize, 15),
         });
       }
 
@@ -320,7 +416,8 @@ export class CardTable {
       const a = i * 0.7;
       const pos = new THREE.Vector3(Math.cos(a) * 0.12 * i, TABLE_Y + 0.42 + i * 0.07, Math.sin(a) * 0.12 * i);
       const facing = this.camera ? Math.atan2(this.camera.position.x - pos.x, this.camera.position.z - pos.z) : 0;
-      const e = new THREE.Euler(-Math.PI / 2.4, facing, 0, 'YXZ');
+      // near-vertical, face (and upright title) toward the viewer
+      const e = new THREE.Euler(Math.PI / 2 - 0.35, facing, 0, 'YXZ');
       wanted.set(s.instId, {
         cardId: s.cardId, zone: 'stack',
         custom: { pos, quat: new THREE.Quaternion().setFromEuler(e) },
@@ -349,14 +446,15 @@ export class CardTable {
       if (w.custom) transform = w.custom;
       else {
         const frame = this.seatFrame(w.seat);
-        transform = this.placeFlat(frame, w.dx, w.dz, w.tapped, w.zone !== 'library');
+        const faceDown = w.zone === 'library' || w.zone === 'sideboard';
+        transform = this.placeFlat(frame, w.dx, w.dz, w.tapped, !faceDown);
         if (w.stack) transform.pos.y += w.stack * 0.0016;
       }
       if (!mesh) {
         mesh = makeCardMesh(w.cardId);
         // new cards appear from their owner's deck position for a draw/cast feel
         const frame = this.seatFrame(w.seat ?? 0);
-        mesh.position.copy(frame.origin).addScaledVector(frame.right, -this.radius * 0.62);
+        mesh.position.copy(frame.origin).addScaledVector(frame.right, this.zoneAnchors().library.dx);
         mesh.position.y = TABLE_Y + 0.06;
         this.group.add(mesh);
         this.meshes.set(id, mesh);
@@ -366,7 +464,9 @@ export class CardTable {
                       Math.abs(mesh.quaternion.dot(transform.quat)) < 0.99999;
         if (moved) tween(mesh, transform, 0.4, { arc: w.zone === 'battlefield' ? 0.05 : 0 });
       }
-      if (w.stack != null && w.zone === 'library') mesh.scale.setY(Math.max(1, w.stack * 1.4));
+      if (w.stack != null && (w.zone === 'library' || w.zone === 'sideboard')) {
+        mesh.scale.setY(Math.max(1, w.stack * 1.4));
+      }
       mesh.userData.zoneInfo = w;
       mesh.userData.instId = id;
     }

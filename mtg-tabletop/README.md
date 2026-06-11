@@ -24,6 +24,12 @@ Open `http://localhost:8080`, **Host game** (2–6 seats), share the 4-letter
 room code; friends **Join as player** or **Join as spectator**. The host can
 also **Add practice bot** to try things solo.
 
+The table is a **square for 2–4 players** and becomes an **n-sided polygon
+with one flat side per player** for 5+ (pentagon for five, hexagon for six),
+sized to the player count:
+
+![Pentagon table](docs/pentagon-table.png)
+
 `npm test` runs the rules-engine smoke test. `npm run test:visual` drives the
 whole game in headless Chrome and writes screenshots to `screens/`
 (requires `npm i --no-save puppeteer` first, and the server running).
@@ -62,10 +68,31 @@ Cards animate physically — drawn from the deck stack with an arc, cast onto a
 floating stack spiral above the table, tap by rotating sideways, die by
 sinking away — generic but lively motion on every game action.
 
+**Zones.** Every seat gets a printed playmat with explicit zones — battlefield
+and lands rows, library, graveyard, exile, and sideboard pads — plus the hand
+fan floating in front of you. Hidden zones stay hidden: opponents see only
+your hand/library/sideboard counts.
+
+### Decks: built-in starter cube or Scryfall import
+
 The included set is a self-contained starter cube (5 colors, ~30 cards) with
-five prebuilt 40-card decks. It is **not** the full Magic card pool — the
-engine implements the core Arena ruleset, and new cards are added as data in
-`shared/cards.js`.
+five prebuilt 40-card decks (each with a small sideboard) that work fully
+offline.
+
+For real cards, paste a decklist in the lobby (`4 Lightning Strike` per line,
+optional `Sideboard` section) and hit **Import deck**. Card data is fetched
+**on demand from Scryfall** — batched through `/cards/collection`, converted
+to the engine's format, and cached in memory and on disk, so the full card
+database is never stored. Card scans are proxied through the game server
+(Scryfall's CDN has no CORS headers) and rendered onto the 3D cards:
+
+![Scryfall cards](docs/scryfall-cards.png)
+
+Import coverage follows the engine: any creature (cost, P/T, supported
+keywords), single-color tap lands incl. basics, and instants/sorceries whose
+oracle text matches a supported effect (burn, draw, destroy, exile, counter,
+pumps, drain, lifegain). Unsupported cards are reported by name instead of
+silently misbehaving.
 
 ### Secondary mode — table antics (press **Tab**)
 
@@ -94,6 +121,37 @@ hidden hands.
 
 ![Spectator](docs/spectator.png)
 
+### Environments (🌍 Scene)
+Any player can change the scene around the table; the choice syncs to
+everyone. Environment events are strictly audiovisual — they never move the
+table, its props, or any card. All ambience is synthesized WebAudio (no sound
+files):
+
+- **Tavern** — the default dark den.
+- **Living Room** — full living-room set (sofa, rug, bookshelf, floor lamp);
+  the TV switches itself on for exactly 3 seconds — picture, glow, and a
+  jaunty jingle — at random intervals of no less than 5 minutes.
+- **Beachside** — sand, ocean, palms; **sun glare** when you look up toward
+  the sun, 3D birds flying through with proximity-based chirps, a constant
+  wave bed, and a **tidal wave every 5 minutes** that sweeps the beach and
+  dissolves before reaching the table.
+- **Asian Marketplace** — stalls, lanterns and a constant crowd-chatter bed;
+  passerby NPCs walk behind the players from random directions, each with
+  their own chitchat that gets louder the closer they pass.
+- **Mountain Peak** — summit plateau ringed by snowy peaks and drifting
+  clouds; passing birds (proximity audio), an echoing **yodel** and an
+  unlucky hiker **falling off the edge with cracking-ground sounds**, each at
+  random intervals of no less than 5 minutes.
+- **Jungle** — dense canopy, rustling-leaves bed, and a **T-rex roar at
+  varying distance** (closer = louder and brighter) at random ≥5-minute
+  intervals.
+
+![Beach environment](docs/env-beach.png)
+![Market environment](docs/env-market.png)
+
+For testing, set `window.__envFast = true` in the console before joining to
+compress the long event timers from minutes to seconds.
+
 ### Avatars, camera & voice
 - Pick one of four avatar presets in the lobby (Mage / Knight / Druid / Warlock)
 - Each avatar's face is a screen: when a player enables their camera, their
@@ -106,20 +164,23 @@ hidden hands.
 
 ```
 mtg-tabletop/
-├── shared/            # used by BOTH server and client
-│   ├── cards.js       #   card database + prebuilt decks
-│   └── engine.js      #   the MTG rules engine (authoritative on the server)
+├── shared/              # used by BOTH server and client
+│   ├── cards.js         #   built-in starter cards + dynamic card registry
+│   └── engine.js        #   the MTG rules engine (authoritative on the server)
 ├── server/
-│   ├── index.js       # express + ws: rooms, engine host, antics relay,
-│   │                  # WebRTC signaling, practice bots, static serving
-│   ├── engine.test.js # rules-engine smoke test (node)
-│   └── visual.test.js # headless-Chrome end-to-end screenshot test
-└── src/               # three.js client
-    ├── scene/         # world/table/seats, card meshes + tweens, hand fan,
-    │                  # avatars (video faces), antics effects + WebAudio sfx
-    ├── controls/      # seat rig, play/FPS/spectator modes, weapon viewmodels
-    ├── net/           # ws client, WebRTC media mesh
-    └── ui/            # HUD (phases, life, mana, prompts, log)
+│   ├── index.js         # express + ws: rooms, engine host, antics relay,
+│   │                    # WebRTC signaling, bots, env sync, card-image proxy
+│   ├── scryfall.js      # on-demand Scryfall import + disk cache
+│   ├── engine.test.js   # rules-engine smoke test (node)
+│   ├── scryfall.test.js # importer test (parsing + live API)
+│   └── visual.test.js   # headless-Chrome end-to-end screenshot test
+└── src/                 # three.js client
+    ├── scene/           # world/table/seats, zone playmats, card meshes +
+    │                    # tweens, hand fan, avatars (video faces), antics
+    │                    # effects, environments + synthesized ambience
+    ├── controls/        # seat rig, play/FPS/spectator modes, weapon viewmodels
+    ├── net/             # ws client, WebRTC media mesh
+    └── ui/              # HUD (phases, life, mana, prompts, log)
 ```
 
 - The server owns the game state. Clients send `{type:'action', …}` messages;
