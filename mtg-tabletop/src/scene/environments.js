@@ -17,7 +17,8 @@
 // (minutes → seconds) when testing.
 
 import * as THREE from 'three';
-import { canvasTexture, woodTexture, TABLE_Y } from './world.js';
+import { canvasTexture, woodTexture, normalFor, TABLE_Y } from './world.js';
+import { place } from './assets.js';
 import {
   oceanLoop, crowdLoop, leavesLoop, windLoop, chatterLoop, birdVoice,
   trexRoar, yodel, groundCrack, fallingScream, tvBlip, tidalRumble,
@@ -209,7 +210,10 @@ const BUILDERS = {
     const floorTex = woodTexture('#3a2c1d', '#241a10');
     floorTex.repeat.set(6, 6);
     const floor = new THREE.Mesh(new THREE.CircleGeometry(16, 48),
-      new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.85 }));
+      new THREE.MeshStandardMaterial({
+        map: floorTex, normalMap: normalFor(floorTex, 2), normalScale: new THREE.Vector2(0.5, 0.5),
+        roughness: 0.85,
+      }));
     floor.rotation.x = -Math.PI / 2;
     floor.receiveShadow = true;
     const wall = new THREE.Mesh(new THREE.CylinderGeometry(16, 16, 8, 48, 1, true),
@@ -232,24 +236,17 @@ const BUILDERS = {
       beam.position.set(-8 + i * 4, 7.2, 0);
       group.add(beam);
     }
-    // barrels along the wall
-    const barrelMat = new THREE.MeshStandardMaterial({ map: woodTexture('#4a3320', '#2c1d10'), roughness: 0.8 });
+    // barrels and crates along the wall (Kenney pirate kit)
     const hoopMat = mat(0x2a2a2e, { metalness: 0.8, roughness: 0.4 });
     for (let i = 0; i < 6; i++) {
       const a = 0.5 + i * 0.42;
-      const barrel = new THREE.Group();
-      const body = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 1.0, 14), barrelMat);
-      body.scale.x = 1.12; body.position.y = 0.5;
-      for (const hy of [0.18, 0.82]) {
-        const hoop = new THREE.Mesh(new THREE.TorusGeometry(0.43, 0.02, 6, 18), hoopMat);
-        hoop.rotation.x = Math.PI / 2; hoop.position.y = hy; hoop.scale.x = 1.12;
-        barrel.add(hoop);
+      const at = new THREE.Vector3(Math.cos(a) * 13.5, 0, Math.sin(a) * 13.5);
+      if (i % 3 === 2) {
+        place(group, 'crate', { at, targetHeight: 0.7, rotY: Math.random() * Math.PI });
+        place(group, 'crate', { at: at.clone().setY(0.7), targetHeight: 0.7, rotY: Math.random() * Math.PI });
+      } else {
+        place(group, 'barrel', { at, targetHeight: 1.0, rotY: Math.random() * Math.PI });
       }
-      barrel.add(body);
-      barrel.position.set(Math.cos(a) * 13.5, 0, Math.sin(a) * 13.5);
-      if (i % 3 === 2) { barrel.position.y = 1.02; barrel.position.x -= 0.1; } // stacked
-      barrel.traverse(o => { if (o.isMesh) o.castShadow = true; });
-      group.add(barrel);
     }
     // candle sconces with flickering glow
     const sconces = [];
@@ -312,47 +309,17 @@ const BUILDERS = {
       wall.position.set(x, H / 2, z); wall.rotation.y = ry;
       group.add(wall);
     }
-    // rug under the table
-    const rug = new THREE.Mesh(new THREE.CircleGeometry(3.4, 40), mat(0x7a3b35, { roughness: 1 }));
-    rug.rotation.x = -Math.PI / 2; rug.position.y = 0.005;
-    group.add(rug);
-    // sofa
-    const sofa = new THREE.Group();
-    const base = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.45, 1), mat(0x35495e));
-    base.position.y = 0.3;
-    const backRest = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.6, 0.25), mat(0x2e4052));
-    backRest.position.set(0, 0.75, 0.38);
-    for (const s of [-1, 1]) {
-      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.35, 1), mat(0x2e4052));
-      arm.position.set(1.42 * s, 0.62, 0);
-      sofa.add(arm);
-    }
-    sofa.add(base, backRest);
-    sofa.position.set(0, 0, D / 2 - 0.7);
-    group.add(sofa);
-    // bookshelf
-    const shelf = new THREE.Group();
-    const frame = new THREE.Mesh(new THREE.BoxGeometry(1.6, 2.2, 0.34), mat(0x4a3621));
-    frame.position.y = 1.1;
-    shelf.add(frame);
-    for (let r = 0; r < 4; r++) for (let b = 0; b < 7; b++) {
-      const book = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.3 + Math.random() * 0.1, 0.2),
-        mat(new THREE.Color().setHSL(Math.random(), 0.45, 0.4)));
-      book.position.set(-0.65 + b * 0.2, 0.5 + r * 0.5, 0.06);
-      shelf.add(book);
-    }
-    shelf.position.set(-W / 2 + 0.25, 0, -1.5);
-    shelf.rotation.y = Math.PI / 2;
-    group.add(shelf);
-    // floor lamp
-    const lampPole = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.03, 1.6), mat(0x222222, { metalness: 0.7 }));
-    lampPole.position.set(W / 2 - 0.8, 0.8, D / 2 - 0.8);
-    const lampShade = new THREE.Mesh(new THREE.ConeGeometry(0.24, 0.3, 16, 1, true),
-      mat(0xd8c9a0, { emissive: 0xffd9a0, emissiveIntensity: 0.8, side: THREE.DoubleSide }));
-    lampShade.position.set(W / 2 - 0.8, 1.65, D / 2 - 0.8);
+    // rug under the table (Kenney furniture kit, like the rest of the set)
+    place(group, 'rugRound', { at: new THREE.Vector3(0, 0.004, 0), targetWidth: 6.4 });
+    // sofa against the back wall
+    place(group, 'loungeSofa', { at: new THREE.Vector3(0, 0, D / 2 - 0.7), targetWidth: 2.6, rotY: Math.PI });
+    // bookcase with books
+    place(group, 'bookcaseOpen', { at: new THREE.Vector3(-W / 2 + 0.3, 0, -1.5), targetHeight: 2.1, rotY: Math.PI / 2 });
+    // floor lamp + warm light
+    place(group, 'lampRoundFloor', { at: new THREE.Vector3(W / 2 - 0.8, 0, D / 2 - 0.8), targetHeight: 1.7 });
     const lampLight = new THREE.PointLight(0xffd9a0, 6, 7);
     lampLight.position.set(W / 2 - 0.8, 1.6, D / 2 - 0.8);
-    group.add(lampPole, lampShade, lampLight);
+    group.add(lampLight);
 
     // window with daylight pouring in + curtains
     const winFrame = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.7, 2.6), mat(0xd8d2c4));
@@ -386,44 +353,32 @@ const BUILDERS = {
       art.position.set(px, 2, pz + 0.035);
       group.add(pic, art);
     }
-    const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.16, 0.4, 12), mat(0x9a5a35));
-    pot.position.set(-W / 2 + 0.6, 0.2, D / 2 - 0.6);
-    group.add(pot);
-    for (let l = 0; l < 7; l++) {
-      const leaf = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.85, 5), mat(0x3f6a35));
-      leaf.position.set(-W / 2 + 0.6, 0.75, D / 2 - 0.6);
-      leaf.rotation.z = 0.55; leaf.rotation.y = (l / 7) * Math.PI * 2;
-      group.add(leaf);
-    }
-    const coffeeTable = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.06, 0.5),
-      new THREE.MeshStandardMaterial({ map: woodTexture('#5a4026', '#3a2818'), roughness: 0.4 }));
-    coffeeTable.position.set(0, 0.34, D / 2 - 1.7);
-    for (const [lx, lz] of [[-0.48, -0.18], [0.48, -0.18], [-0.48, 0.18], [0.48, 0.18]]) {
-      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.32), mat(0x2a2018));
-      leg.position.set(lx, 0.16, D / 2 - 1.7 + lz);
-      group.add(leg);
-    }
-    const books = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.09, 0.22), mat(0x7a3b35));
-    books.position.set(-0.2, 0.42, D / 2 - 1.7);
-    books.rotation.y = 0.3;
-    group.add(coffeeTable, books);
+    place(group, 'pottedPlant', { at: new THREE.Vector3(-W / 2 + 0.6, 0, D / 2 - 0.6), targetHeight: 1.05 });
+    place(group, 'tableCoffee', {
+      at: new THREE.Vector3(0, 0, D / 2 - 1.7), targetWidth: 1.15,
+      onReady(holder) {
+        // stack the books on the actual table top once its height is known
+        const top = new THREE.Box3().setFromObject(holder).max.y;
+        place(group, 'books', { at: new THREE.Vector3(-0.2, top, D / 2 - 1.7), targetWidth: 0.3, rotY: 0.3 });
+      },
+    });
 
-    // TV on a stand against the wall opposite the sofa
-    const stand = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.4, 0.45), mat(0x2a2018));
-    stand.position.set(0, 0.2, -D / 2 + 0.45);
-    const tvFrame = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.95, 0.07), mat(0x0a0a0a, { roughness: 0.4 }));
-    tvFrame.position.set(0, 1.05, -D / 2 + 0.4);
+    // wall-mounted TV (animated screen plane) above a media cabinet
+    place(group, 'cabinetTelevision', { at: new THREE.Vector3(0, 0, -D / 2 + 0.45), targetWidth: 1.8 });
+    const tvFrame = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.92, 0.06), mat(0x0a0a0a, { roughness: 0.35 }));
+    tvFrame.position.set(0, 1.45, -D / 2 + 0.1);
+    group.add(tvFrame);
     const tvCv = document.createElement('canvas');
     tvCv.width = 256; tvCv.height = 144;
     const tvCtx = tvCv.getContext('2d');
     tvCtx.fillStyle = '#050505'; tvCtx.fillRect(0, 0, 256, 144);
     const tvTex = new THREE.CanvasTexture(tvCv);
     const screenMat = new THREE.MeshBasicMaterial({ map: tvTex, toneMapped: false });
-    const screen = new THREE.Mesh(new THREE.PlaneGeometry(1.58, 0.84), screenMat);
-    screen.position.set(0, 1.05, -D / 2 + 0.44);
+    const screen = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 0.82), screenMat);
+    screen.position.set(0, 1.45, -D / 2 + 0.14);
     const tvGlow = new THREE.PointLight(0x88aaff, 0, 6);
-    tvGlow.position.set(0, 1.2, -D / 2 + 1);
-    group.add(stand, tvFrame, screen, tvGlow);
+    tvGlow.position.set(0, 1.5, -D / 2 + 1);
+    group.add(screen, tvGlow);
 
     let tvAnim = null;
     function tvOn() {
@@ -515,45 +470,17 @@ const BUILDERS = {
       clouds.push(cloud);
       group.add(cloud);
     }
-    // palms with gentle sway
+    // modeled palms (Kenney pirate kit) with gentle sway
     const palms = [];
-    for (let i = 0; i < 6; i++) {
-      const a = (i / 6) * Math.PI * 2 + 0.4;
+    for (let i = 0; i < 7; i++) {
+      const a = (i / 7) * Math.PI * 2 + 0.4;
       const r = 9 + Math.random() * 4;
-      const palm = new THREE.Group();
-      // curved trunk from stacked segments
-      let segY = 0, lean = 0;
-      for (let s = 0; s < 6; s++) {
-        const seg = new THREE.Mesh(new THREE.CylinderGeometry(0.10 - s * 0.008, 0.13 - s * 0.008, 0.62, 8),
-          mat(0x8a6a42, { map: null }));
-        lean += 0.05;
-        seg.position.set(lean * segY * 0.35, segY + 0.3, 0);
-        seg.rotation.z = lean;
-        segY += 0.58;
-        seg.castShadow = true;
-        palm.add(seg);
-      }
-      const crown = new THREE.Group();
-      for (let f = 0; f < 8; f++) {
-        const frond = new THREE.Mesh(new THREE.ConeGeometry(0.13, 2.2, 4), mat(0x3f7c3a));
-        frond.position.y = 0.1;
-        frond.rotation.z = Math.PI / 2 + 0.38 + Math.random() * 0.2;
-        frond.rotation.y = (f / 8) * Math.PI * 2;
-        frond.castShadow = true;
-        crown.add(frond);
-      }
-      // coconuts
-      for (let c = 0; c < 3; c++) {
-        const nut = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 8), mat(0x5a4226));
-        nut.position.set(Math.cos(c * 2.1) * 0.18, -0.05, Math.sin(c * 2.1) * 0.18);
-        crown.add(nut);
-      }
-      crown.position.set(lean * segY * 0.35, segY + 0.15, 0);
-      palm.add(crown);
-      palm.position.set(Math.cos(a) * r, 0, Math.sin(a) * r);
-      palm.rotation.y = Math.random() * Math.PI * 2;
-      palms.push({ palm, crown, phase: Math.random() * 9 });
-      group.add(palm);
+      const palm = place(group, i % 2 ? 'palm-detailed-bend' : 'palm-detailed-straight', {
+        at: new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r),
+        targetHeight: 3.6 + Math.random() * 1.4,
+        rotY: Math.random() * Math.PI * 2,
+      });
+      palms.push({ palm, phase: Math.random() * 9 });
     }
     // beach umbrella + towels + rocks + distant sailboat
     const umb = new THREE.Group();
@@ -577,13 +504,13 @@ const BUILDERS = {
       towel.position.set(tx, 0.012, tz);
       group.add(towel);
     }
-    for (let i = 0; i < 7; i++) {
-      const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(0.12 + Math.random() * 0.25, 0), mat(0x8d8a80));
+    for (let i = 0; i < 8; i++) {
       const a = Math.random() * Math.PI * 2, r = 10 + Math.random() * 4;
-      rock.position.set(Math.cos(a) * r, 0.08, Math.sin(a) * r);
-      rock.rotation.set(Math.random(), Math.random(), Math.random());
-      rock.castShadow = true;
-      group.add(rock);
+      place(group, ['rock_smallA', 'rock_smallB', 'rock_largeA'][i % 3], {
+        at: new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r),
+        targetWidth: 0.3 + Math.random() * 0.5,
+        rotY: Math.random() * Math.PI * 2,
+      });
     }
     const boat = new THREE.Group();
     const hull = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.2, 2.6, 6, 1), mat(0x7a3b30));
@@ -631,8 +558,8 @@ const BUILDERS = {
         foam.scale.setScalar(1 + Math.sin(t * 0.7) * 0.012);
         // palm sway, cloud drift, boat bobbing
         for (const p of palms) {
-          p.palm.rotation.z = Math.sin(t * 0.8 + p.phase) * 0.025;
-          p.crown.rotation.y += dt * 0.05;
+          p.palm.rotation.z = Math.sin(t * 0.8 + p.phase) * 0.03;
+          p.palm.rotation.x = Math.cos(t * 0.6 + p.phase) * 0.018;
         }
         for (const c of clouds) {
           c.position.x += dt * 0.5;
@@ -761,10 +688,11 @@ const BUILDERS = {
       rug.rotation.z = Math.random() * Math.PI;
       rug.position.set(Math.cos(a) * r, 0.012, Math.sin(a) * r);
       group.add(rug);
-      const potMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.1, 0.3, 10), mat(0x8a5a35));
-      potMesh.position.set(Math.cos(a) * r + 0.6, 0.15, Math.sin(a) * r);
-      potMesh.castShadow = true;
-      group.add(potMesh);
+      place(group, i % 2 ? 'crate' : 'barrel', {
+        at: new THREE.Vector3(Math.cos(a) * r + 0.6, 0, Math.sin(a) * r),
+        targetHeight: 0.45 + Math.random() * 0.25,
+        rotY: Math.random() * Math.PI,
+      });
     }
 
     const loops = [crowdLoop()];
@@ -867,14 +795,22 @@ const BUILDERS = {
     sunLight.shadow.camera.top = 9; sunLight.shadow.camera.bottom = -9;
     group.add(sunLight);
 
-    // boulders along the plateau rim
+    // boulders and wind-bitten pines along the plateau rim
     for (let i = 0; i < 10; i++) {
       const a = (i / 10) * Math.PI * 2 + Math.random() * 0.4;
-      const rk = new THREE.Mesh(new THREE.DodecahedronGeometry(0.3 + Math.random() * 0.5, 0), mat(0x73777f));
-      rk.position.set(Math.cos(a) * (plateauR - 0.7), 0.2, Math.sin(a) * (plateauR - 0.7));
-      rk.rotation.set(Math.random(), Math.random(), Math.random());
-      rk.castShadow = true;
-      group.add(rk);
+      place(group, ['rock_largeA', 'rock_largeB', 'rock_smallA'][i % 3], {
+        at: new THREE.Vector3(Math.cos(a) * (plateauR - 0.7), 0, Math.sin(a) * (plateauR - 0.7)),
+        targetWidth: 0.6 + Math.random() * 0.9,
+        rotY: Math.random() * Math.PI * 2,
+      });
+    }
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2 + 1.1;
+      place(group, i % 2 ? 'tree_pineDefaultA' : 'tree_pineDefaultB', {
+        at: new THREE.Vector3(Math.cos(a) * (plateauR - 1.6), 0, Math.sin(a) * (plateauR - 1.6)),
+        targetHeight: 2.2 + Math.random() * 1.2,
+        rotY: Math.random() * Math.PI * 2,
+      });
     }
     // summit flag, flapping in the wind
     const flagPole = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.035, 2.4), mat(0x4a3a26));
@@ -985,45 +921,32 @@ const BUILDERS = {
     lights.fill.color.set(0x3a5a30);
 
     group.add(groundDisc('#27361c', 24));
-    // dense tree ring
+    // dense modeled tree ring (Kenney nature kit), with hanging vines
+    const treeNames = ['tree_default', 'tree_detailed', 'tree_fat'];
     for (let i = 0; i < 26; i++) {
       const a = Math.random() * Math.PI * 2;
       const r = 7 + Math.random() * 13;
-      const tree = new THREE.Group();
-      const h = 3.5 + Math.random() * 3.5;
-      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.24, h, 7), mat(0x4a3a26));
-      trunk.position.y = h / 2;
-      tree.add(trunk);
-      for (let c = 0; c < 3; c++) {
-        const canopy = new THREE.Mesh(new THREE.SphereGeometry(0.9 + Math.random() * 0.9, 8, 7),
-          mat(new THREE.Color().setHSL(0.3, 0.4, 0.16 + Math.random() * 0.1)));
-        canopy.position.set((Math.random() - 0.5) * 1.2, h - 0.4 + Math.random() * 0.9, (Math.random() - 0.5) * 1.2);
-        tree.add(canopy);
+      const at = new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r);
+      const h = 4 + Math.random() * 3.5;
+      place(group, treeNames[i % treeNames.length], {
+        at, targetHeight: h, rotY: Math.random() * Math.PI * 2,
+      });
+      if (Math.random() < 0.4) {
+        const vine = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.02, h * 0.5, 5), mat(0x35502a));
+        vine.position.copy(at).add(new THREE.Vector3(0.5, h * 0.62, 0));
+        group.add(vine);
       }
-      // hanging vine
-      if (Math.random() < 0.5) {
-        const vine = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.02, h * 0.6, 5), mat(0x35502a));
-        vine.position.set(0.5, h * 0.6, 0);
-        tree.add(vine);
-      }
-      tree.position.set(Math.cos(a) * r, 0, Math.sin(a) * r);
-      tree.traverse(o => { if (o.isMesh) o.castShadow = true; });
-      group.add(tree);
     }
-    // ferns near the table
-    for (let i = 0; i < 14; i++) {
+    // modeled undergrowth near the table: bushes, leafy grass, flowers
+    const underNames = ['plant_bushDetailed', 'grass_leafs', 'plant_bushDetailed', 'flower_redA', 'grass_leafs', 'flower_yellowA'];
+    for (let i = 0; i < 18; i++) {
       const a = Math.random() * Math.PI * 2;
-      const r = 4.5 + Math.random() * 3;
-      const fern = new THREE.Group();
-      for (let l = 0; l < 5; l++) {
-        const leaf = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.7, 4), mat(0x3f6a30));
-        leaf.position.y = 0.3;
-        leaf.rotation.z = 0.7;
-        leaf.rotation.y = (l / 5) * Math.PI * 2;
-        fern.add(leaf);
-      }
-      fern.position.set(Math.cos(a) * r, 0, Math.sin(a) * r);
-      group.add(fern);
+      const r = 4.5 + Math.random() * 3.5;
+      place(group, underNames[i % underNames.length], {
+        at: new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r),
+        targetHeight: 0.3 + Math.random() * 0.45,
+        rotY: Math.random() * Math.PI * 2,
+      });
     }
     // shafts of light + visible god-ray cones
     const shaft = new THREE.SpotLight(0xcfe8a0, 60, 0, 0.3, 0.6);

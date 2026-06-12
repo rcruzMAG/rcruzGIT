@@ -3,6 +3,7 @@
 
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { place } from './assets.js';
 
 export const TABLE_Y = 0.98;            // table surface height
 export const EYE_HEIGHT = 1.42;         // seated first-person eye height
@@ -102,6 +103,43 @@ function feltTexture(tint = '#1d3a2e') {
   }, 1024, 1024);
 }
 
+// Build a tangent-space normal map from a canvas texture's luminance (the
+// procedural wood/felt drawings double as height maps). Cached per texture.
+const normalCache = new Map();
+export function normalFor(tex, strength = 2) {
+  if (normalCache.has(tex)) return normalCache.get(tex);
+  const src = tex.image;
+  const w = src.width, h = src.height;
+  const data = src.getContext('2d').getImageData(0, 0, w, h).data;
+  const out = document.createElement('canvas');
+  out.width = w; out.height = h;
+  const ctx = out.getContext('2d');
+  const img = ctx.createImageData(w, h);
+  const hgt = (x, y) => {
+    const i = (((y + h) % h) * w + ((x + w) % w)) * 4;
+    return (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114) / 255;
+  };
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const dx = (hgt(x - 1, y) - hgt(x + 1, y)) * strength;
+      const dy = (hgt(x, y - 1) - hgt(x, y + 1)) * strength;
+      const inv = 1 / Math.sqrt(dx * dx + dy * dy + 1);
+      const i = (y * w + x) * 4;
+      img.data[i] = (dx * inv * 0.5 + 0.5) * 255;
+      img.data[i + 1] = (dy * inv * 0.5 + 0.5) * 255;
+      img.data[i + 2] = (inv * 0.5 + 0.5) * 255;
+      img.data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  const ntex = new THREE.CanvasTexture(out);
+  ntex.wrapS = ntex.wrapT = THREE.RepeatWrapping;
+  ntex.repeat.copy(tex.repeat);
+  ntex.anisotropy = 8;
+  normalCache.set(tex, ntex);
+  return ntex;
+}
+
 // procedural texture helpers shared with the environments module
 export { canvasTexture, woodTexture, feltTexture };
 
@@ -127,8 +165,16 @@ export function buildTable(scene, nSeats) {
   // rotate the prism so face centers (not corners) point at seat angles k·2π/sides
   const thetaStart = -Math.PI / sides;
 
-  const wood = new THREE.MeshStandardMaterial({ map: woodTexture(), roughness: 0.55, metalness: 0.08 });
-  const felt = new THREE.MeshStandardMaterial({ map: feltTexture(), roughness: 0.97, metalness: 0 });
+  const woodMap = woodTexture();
+  const wood = new THREE.MeshStandardMaterial({
+    map: woodMap, normalMap: normalFor(woodMap, 2.4), normalScale: new THREE.Vector2(0.6, 0.6),
+    roughness: 0.55, metalness: 0.08,
+  });
+  const feltMap = feltTexture();
+  const felt = new THREE.MeshStandardMaterial({
+    map: feltMap, normalMap: normalFor(feltMap, 1.2), normalScale: new THREE.Vector2(0.35, 0.35),
+    roughness: 0.97, metalness: 0,
+  });
 
   const rimScale = 1 + 0.12 / circR;
   const rim = new THREE.Mesh(
@@ -161,8 +207,6 @@ export function buildTable(scene, nSeats) {
     Array.from({ length: nSeats }, (_, i) => (i / sides) * Math.PI * 2);
 
   const seats = [];
-  const chairMat = new THREE.MeshStandardMaterial({ color: 0x2c2218, roughness: 0.8 });
-  const cushionMat = new THREE.MeshStandardMaterial({ color: 0x4a2630, roughness: 0.95 });
   for (let i = 0; i < nSeats; i++) {
     const angle = seatAngles[i];
     const dist = inR + 0.12 + 0.55;
@@ -176,23 +220,11 @@ export function buildTable(scene, nSeats) {
       lookAt: new THREE.Vector3(0, TABLE_Y + 0.1, 0),
     });
 
-    const chair = new THREE.Group();
-    const seatMesh = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.07, 0.5), cushionMat);
-    seatMesh.position.y = 0.52;
-    // lookAt() points local +z at the table, so the backrest goes on -z
-    // (behind the sitter, away from the table)
-    const back = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.62, 0.07), chairMat);
-    back.position.set(0, 0.86, -0.235);
-    for (const [lx, lz] of [[-0.22, -0.2], [0.22, -0.2], [-0.22, 0.2], [0.22, 0.2]]) {
-      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.52), chairMat);
-      leg.position.set(lx, 0.26, lz);
-      chair.add(leg);
-    }
-    chair.add(seatMesh, back);
-    chair.position.copy(pos).add(new THREE.Vector3(Math.sin(angle) * 0.22, 0, Math.cos(angle) * 0.22));
-    chair.lookAt(0, 0.5, 0);
-    chair.traverse(o => { o.castShadow = true; });
-    group.add(chair);
+    // modeled chair (Kenney furniture kit, CC0), seat facing the table
+    const chairPos = pos.clone().add(new THREE.Vector3(Math.sin(angle) * 0.22, 0, Math.cos(angle) * 0.22));
+    place(group, 'chairCushion', {
+      at: chairPos, targetHeight: 0.92, lookAtCenter: true, flip: true,
+    });
   }
 
   // loose props that react to table slams (dice + a beer mug). Cards never join this set.

@@ -8,6 +8,7 @@ import { makeAvatar, AVATAR_PRESETS } from './scene/avatar.js';
 import { Effects, sfx } from './scene/effects.js';
 import { SeatRig, WeaponRig, Controls } from './controls/modes.js';
 import { EnvironmentManager, ENVIRONMENTS } from './scene/environments.js';
+import { Post } from './scene/post.js';
 import { NetClient } from './net/client.js';
 import { MediaMesh } from './net/media.js';
 import { Hud } from './ui/hud.js';
@@ -246,10 +247,12 @@ function enterWorld() {
   const scene = createScene(renderer);
   const camera = new THREE.PerspectiveCamera(58, innerWidth / innerHeight, 0.05, 60);
   scene.add(camera);
+  const post = new Post(renderer, scene, camera);
   addEventListener('resize', () => {
     camera.aspect = innerWidth / innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(innerWidth, innerHeight);
+    post.setSize(innerWidth, innerHeight);
   });
 
   const nSeats = roomInfo.players.length;
@@ -313,7 +316,7 @@ function enterWorld() {
     effects.update(dt);
     envMgr.update(dt, camera);
     effects.applyShake(camera, t);
-    renderer.render(scene, camera);
+    post.render();
   });
 }
 

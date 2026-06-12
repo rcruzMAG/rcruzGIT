@@ -198,7 +198,15 @@ mtg-tabletop/
   receives a per-player **redacted view** plus animation events.
 - Antics (`gun`/`throw`/`slam`) are a separate ephemeral channel that never
   touches the engine.
-- Rendering aims at "max efficient but modern": ACES filmic tone mapping,
-  PCF soft shadows, PMREM environment lighting, procedural PBR wood/felt
-  textures and procedurally drawn card faces (zero external assets — works
-  fully offline), pixel-ratio capping, and a single draw call per card.
+- Rendering aims at "max efficient but modern": a post-processing chain
+  (MSAA, GTAO ambient occlusion, subtle bloom on emissives, ACES tone
+  mapping), PCF soft shadows, PMREM environment lighting, procedural wood/felt
+  textures with **generated normal maps** (the height comes from the same
+  procedural drawing), procedurally drawn card faces, pixel-ratio capping,
+  and a single draw call per card.
+- Furniture and foliage are real modeled assets — Kenney's CC0 Furniture,
+  Nature, and Pirate kits (~420 KB of GLBs vendored in
+  `public/assets/models/`, see its LICENSE.txt) — loaded through a cached
+  GLTF pipeline with automatic size normalization. Chairs, sofa, TV cabinet,
+  bookcase, plants, palms, pines, rocks, barrels and crates are all modeled
+  meshes now; everything still works fully offline.

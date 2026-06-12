@@ -1,0 +1,6 @@
+The .glb models in this folder (and Textures/colormap.png) are from Kenney's
+asset packs — Furniture Kit, Nature Kit, and Pirate Kit — https://kenney.nl
+
+License: Creative Commons Zero (CC0) — public domain.
+"You may use these assets in personal and commercial projects."
+Support Kenney at https://kenney.nl/donate
